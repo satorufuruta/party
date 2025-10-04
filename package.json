@@ -6,22 +6,31 @@
     "dev": "next dev --turbopack",
     "build": "next build --turbopack",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "cf:worker:dev": "wrangler dev --local",
+    "cf:worker:deploy": "wrangler deploy",
+    "cf:pages:dev": "wrangler pages dev",
+    "cf:pages:deploy": "wrangler pages deploy",
+    "cf:d1:migrate": "wrangler d1 migrations apply party-db",
+    "cf:d1:migrate:dev": "wrangler d1 migrations apply party-db --env dev --local",
+    "cf:d1:migration:create": "wrangler d1 migrations create --name"
   },
   "dependencies": {
+    "next": "15.5.4",
     "react": "19.1.0",
-    "react-dom": "19.1.0",
-    "next": "15.5.4"
+    "react-dom": "19.1.0"
   },
   "devDependencies": {
-    "typescript": "^5",
+    "@cloudflare/workers-types": "^4.20251003.0",
+    "@eslint/eslintrc": "^3",
+    "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@tailwindcss/postcss": "^4",
-    "tailwindcss": "^4",
     "eslint": "^9",
     "eslint-config-next": "15.5.4",
-    "@eslint/eslintrc": "^3"
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "wrangler": "^3.99.0"
   }
 }

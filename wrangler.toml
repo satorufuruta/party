@@ -1,0 +1,34 @@
+name = "party-realtime-worker"
+main = "workers/index.ts"
+compatibility_date = "2024-12-05"
+compatibility_flags = ["nodejs_compat"]
+usage_model = "bundled"
+
+[observability]
+enabled = true
+
+[durable_objects]
+bindings = [
+  { name = "QUIZ_ROOM_DO", class_name = "QuizRoomDurableObject" }
+]
+
+[[migrations]]
+tag = "v1"
+new_classes = ["QuizRoomDurableObject"]
+
+[[d1_databases]]
+binding = "PARTY_DB"
+database_name = "party-db"
+database_id = "TODO_REPLACE_WITH_PRODUCTION_D1_ID"
+
+[env.dev]
+vars = { AUTO_PROGRESS_DEFAULT = "true" }
+
+[[env.dev.d1_databases]]
+binding = "PARTY_DB"
+database_name = "party-db-dev"
+database_id = "TODO_REPLACE_WITH_DEV_D1_ID"
+
+[pages]
+project_name = "party-pages"
+build_output_dir = ".vercel/output/static"

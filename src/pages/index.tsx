@@ -1,115 +1,146 @@
-import Image from "next/image";
-import { Geist, Geist_Mono } from "next/font/google";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/router";
+import { createSession, fetchQuizDetail, fetchQuizzes } from "../lib/api";
+import type { QuizDetail, QuizSummary } from "../lib/api";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
+interface QuizWithQuestions extends QuizSummary {
+  questions?: QuizDetail["questions"];
+  open?: boolean;
+}
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+export default function AdminDashboard() {
+  const router = useRouter();
+  const [quizzes, setQuizzes] = useState<QuizWithQuestions[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [creating, setCreating] = useState<string | null>(null);
+  const [autoProgress, setAutoProgress] = useState(true);
 
-export default function Home() {
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const list = await fetchQuizzes();
+        setQuizzes(list);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "クイズ一覧の取得に失敗しました");
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, []);
+
+  const toggleQuiz = async (quiz: QuizWithQuestions) => {
+    if (quiz.open && quiz.questions) {
+      setQuizzes((prev) => prev.map((q) => (q.id === quiz.id ? { ...q, open: false } : q)));
+      return;
+    }
+
+    try {
+      const detail = await fetchQuizDetail(quiz.id);
+      setQuizzes((prev) =>
+        prev.map((q) =>
+          q.id === quiz.id
+            ? { ...q, open: true, questions: detail.questions }
+            : { ...q, open: q.open }
+        )
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "クイズ詳細の取得に失敗しました");
+    }
+  };
+
+  const handleCreateSession = async (quizId: string) => {
+    setCreating(quizId);
+    setError(null);
+    try {
+      const session = await createSession(quizId, { autoProgress });
+      router.push(`/admin/${session.sessionId}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "セッションの作成に失敗しました");
+    } finally {
+      setCreating(null);
+    }
+  };
+
   return (
-    <div
-      className={`${geistSans.className} ${geistMono.className} font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20`}
-    >
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              src/pages/index.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+    <div className="min-h-screen bg-slate-950 text-slate-100">
+      <header className="border-b border-slate-800 bg-slate-900/70 backdrop-blur sticky top-0 z-10">
+        <div className="mx-auto max-w-5xl px-6 py-4 flex items-center justify-between">
+          <h1 className="text-xl font-semibold">Quiz Admin Console</h1>
+          <div className="flex items-center gap-3 text-sm">
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={autoProgress}
+                onChange={(e) => setAutoProgress(e.target.checked)}
+                className="h-4 w-4"
+              />
+              自動進行
+            </label>
+          </div>
         </div>
+      </header>
+      <main className="mx-auto max-w-5xl px-6 py-8">
+        {error && <p className="mb-4 rounded bg-red-500/20 px-4 py-2 text-sm text-red-200">{error}</p>}
+        {loading ? (
+          <p className="text-sm text-slate-400">読み込み中...</p>
+        ) : quizzes.length === 0 ? (
+          <p className="text-sm text-slate-400">登録されたクイズがありません。API やシードでクイズを作成してください。</p>
+        ) : (
+          <div className="space-y-4">
+            {quizzes.map((quiz) => (
+              <section key={quiz.id} className="rounded-lg border border-slate-800 bg-slate-900/60 p-5 shadow">
+                <header className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h2 className="text-lg font-semibold">{quiz.title}</h2>
+                    {quiz.description && <p className="text-sm text-slate-400">{quiz.description}</p>}
+                  </div>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => toggleQuiz(quiz)}
+                      className="rounded border border-slate-700 px-3 py-1 text-sm hover:bg-slate-800"
+                    >
+                      {quiz.open ? "詳細を閉じる" : "詳細を表示"}
+                    </button>
+                    <button
+                      onClick={() => handleCreateSession(quiz.id)}
+                      disabled={creating === quiz.id}
+                      className="rounded bg-emerald-500 px-3 py-1 text-sm font-medium text-emerald-950 hover:bg-emerald-400 disabled:opacity-60"
+                    >
+                      {creating === quiz.id ? "作成中..." : "セッション開始"}
+                    </button>
+                  </div>
+                </header>
+                {quiz.open && quiz.questions && (
+                  <ul className="mt-4 space-y-3 text-sm">
+                    {quiz.questions.map((question, index) => (
+                      <li key={question.id} className="rounded border border-slate-800 bg-slate-950/40 p-3">
+                        <div className="flex justify-between text-slate-300">
+                          <span className="font-medium">Q{index + 1}</span>
+                          <span>{question.timeLimitSec} 秒</span>
+                        </div>
+                        <p className="mt-2 text-slate-100">{question.text}</p>
+                        <ol className="mt-2 space-y-1 text-slate-400">
+                          {question.choices.map((choice) => (
+                            <li key={choice.id} className="flex items-center gap-2">
+                              <span className="inline-flex h-2 w-2 rounded-full bg-slate-600" />
+                              {choice.text}
+                              {choice.isCorrect && (
+                                <span className="ml-2 rounded-full bg-emerald-500/20 px-2 text-xs text-emerald-300">正解</span>
+                              )}
+                            </li>
+                          ))}
+                        </ol>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            ))}
+          </div>
+        )}
       </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
     </div>
   );
 }
