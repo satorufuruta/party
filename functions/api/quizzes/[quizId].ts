@@ -1,4 +1,4 @@
-import { json, errorJson, type Env } from "../_lib";
+import { json, errorJson, type Env, logInfo, logError } from "../_lib";
 import { QuizRepository, QuestionRepository, getDatabase } from "../../../src/server/db";
 
 export const onRequest: PagesFunction<Env> = async ({ request, env, params }) => {
@@ -6,17 +6,21 @@ export const onRequest: PagesFunction<Env> = async ({ request, env, params }) =>
     return errorJson(405, "method_not_allowed", "Unsupported method");
   }
 
-  const quizId = params.quizId;
-  if (!quizId) {
+  const rawQuizId = params.quizId;
+  if (typeof rawQuizId !== "string" || rawQuizId.length === 0) {
+    logError(request, "Missing quizId parameter", { params });
     return errorJson(400, "invalid_path", "quizId is required");
   }
+  const quizId = rawQuizId;
 
+  logInfo(request, "Fetching quiz detail", { quizId });
   const db = getDatabase(env);
   const quizRepo = new QuizRepository(db);
   const questionRepo = new QuestionRepository(db);
 
   const quiz = await quizRepo.getById(quizId);
   if (!quiz) {
+    logError(request, "Quiz not found", { quizId });
     return errorJson(404, "quiz_not_found", "Quiz not found");
   }
 
@@ -29,6 +33,7 @@ export const onRequest: PagesFunction<Env> = async ({ request, env, params }) =>
         text: question.text,
         orderIndex: question.order_index,
         timeLimitSec: question.time_limit_sec,
+        revealDurationSec: question.reveal_duration_sec,
         choices: choices.map((choice) => ({
           id: choice.id,
           text: choice.text,
@@ -38,7 +43,7 @@ export const onRequest: PagesFunction<Env> = async ({ request, env, params }) =>
     })
   );
 
-  return json({
+  const responsePayload = {
     quiz: {
       id: quiz.id,
       title: quiz.title,
@@ -46,5 +51,8 @@ export const onRequest: PagesFunction<Env> = async ({ request, env, params }) =>
       createdAt: quiz.created_at,
       questions: enriched,
     },
-  });
+  };
+
+  logInfo(request, "Quiz detail returned", { quizId, questionCount: enriched.length });
+  return json(responsePayload);
 };

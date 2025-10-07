@@ -35,6 +35,7 @@ Cloudflare Functions (Workers) で提供する REST API の責務と入出力フ
       "text": "今年の社員旅行の行き先は?",
       "orderIndex": 0,
       "timeLimitSec": 20,
+      "revealDurationSec": 5,
       "choices": [
         { "text": "沖縄", "isCorrect": true },
         { "text": "北海道", "isCorrect": false }
@@ -43,6 +44,7 @@ Cloudflare Functions (Workers) で提供する REST API の責務と入出力フ
   ]
 }
 ```
+- `revealDurationSec` は回答締切後に結果を掲示する待機時間 (秒)。未指定時は既定値を適用する。
 - レスポンス `201 Created`:
 ```json
 {
@@ -55,7 +57,7 @@ Cloudflare Functions (Workers) で提供する REST API の責務と入出力フ
 
 ### 2.3 `GET /api/quizzes/:quizId`
 - 概要: クイズ詳細を取得 (編集/閲覧用)。
-- レスポンス例: questions/choices を含む。
+- レスポンス例: questions/choices に加え `revealDurationSec` を含む。
 
 ### 2.4 `PUT /api/quizzes/:quizId`
 - 概要: 既存クイズの編集。部分更新は `PATCH` で対応可。

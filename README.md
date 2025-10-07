@@ -16,7 +16,7 @@ npm run dev
 npm run cf:worker:dev         # wrangler dev --local	nodejs_compat で Worker を起動
 npm run cf:worker:deploy      # wrangler deploy		本番/preview デプロイ
 ```
-- エントリーポイントは `workers/index.ts` (未作成の場合は今後実装)。
+- エントリーポイントは `workers/index.ts`。
 - Durable Object `QuizRoomDurableObject` や D1 バインディングは `wrangler.toml` で管理。
 
 ### Cloudflare Pages

@@ -1,4 +1,4 @@
-import { json, errorJson, parseRequestBody, type Env } from "../_lib";
+import { json, errorJson, parseRequestBody, type Env, logInfo, logError } from "../_lib";
 import {
   QuizRepository,
   QuestionRepository,
@@ -17,6 +17,7 @@ interface CreateQuestionInput {
   text: string;
   timeLimitSec: number;
   choices: CreateChoiceInput[];
+  revealDurationSec?: number;
 }
 
 interface CreateQuizInput {
@@ -34,17 +35,24 @@ export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
     const url = new URL(request.url);
     const limit = Number(url.searchParams.get("limit") ?? "20");
     const offset = Number(url.searchParams.get("offset") ?? "0");
+    logInfo(request, "Fetching quiz list", { limit, offset });
     const quizzes = await quizRepo.list({ limit, offset });
+    logInfo(request, "Quiz list fetched", { count: quizzes.length });
     return json({ quizzes, pagination: { limit, offset } });
   }
 
   if (request.method === "POST") {
     const payload = await parseRequestBody<CreateQuizInput>(request);
     if (!payload) {
+      logError(request, "Invalid JSON payload for quiz creation");
       return errorJson(400, "invalid_payload", "Body must be valid JSON");
     }
 
     if (!payload.title || !Array.isArray(payload.questions) || payload.questions.length === 0) {
+      logError(request, "Quiz creation validation failed", {
+        title: payload.title,
+        questionCount: payload.questions?.length ?? 0,
+      });
       return errorJson(400, "validation_failed", "Quiz title and at least one question are required");
     }
 
@@ -73,6 +81,7 @@ export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
         text: questionInput.text,
         order_index: index,
         time_limit_sec: Math.max(0, questionInput.timeLimitSec ?? 0),
+        reveal_duration_sec: Math.max(0, questionInput.revealDurationSec ?? 5),
         created_at: nowIso,
         updated_at: nowIso,
       };
@@ -89,6 +98,7 @@ export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
       await questionRepo.createQuestion(questionRecord, choices);
     }
 
+    logInfo(request, "Quiz created", { quizId, questionCount: payload.questions.length });
     return json({ id: quizId, title: quizRecord.title }, { status: 201 });
   }
 

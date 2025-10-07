@@ -13,12 +13,41 @@ export const json = (data: unknown, init: ResponseInit = {}): Response => {
 export const errorJson = (status: number, code: string, message: string, details?: unknown): Response =>
   json({ error: { code, message, details } }, { status });
 
+const formatRoute = (request: Request): string => {
+  const { method } = request;
+  let pathname = "unknown";
+  try {
+    pathname = new URL(request.url).pathname;
+  } catch {
+    pathname = request.url;
+  }
+  return `${method} ${pathname}`;
+};
+
+export const logInfo = (request: Request, message: string, details?: unknown): void => {
+  const route = formatRoute(request);
+  if (typeof details === "undefined") {
+    console.log(`[API] ${route} :: ${message}`);
+  } else {
+    console.log(`[API] ${route} :: ${message}`, details);
+  }
+};
+
+export const logError = (request: Request, message: string, details?: unknown): void => {
+  const route = formatRoute(request);
+  if (typeof details === "undefined") {
+    console.error(`[API] ${route} :: ${message}`);
+  } else {
+    console.error(`[API] ${route} :: ${message}`, details);
+  }
+};
+
 export const parseRequestBody = async <T>(request: Request): Promise<T | null> => {
   try {
     const text = await request.text();
     if (!text) return null;
     return JSON.parse(text) as T;
-  } catch (error) {
+  } catch {
     return null;
   }
 };

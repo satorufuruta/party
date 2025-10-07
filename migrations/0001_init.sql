@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS questions (
   text TEXT NOT NULL,
   order_index INTEGER NOT NULL,
   time_limit_sec INTEGER NOT NULL,
+  reveal_duration_sec INTEGER NOT NULL DEFAULT 5,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   FOREIGN KEY (quiz_id) REFERENCES quizzes(id) ON DELETE CASCADE

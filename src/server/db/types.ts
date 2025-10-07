@@ -22,6 +22,7 @@ export interface QuestionRecord {
   text: string;
   order_index: number;
   time_limit_sec: number;
+  reveal_duration_sec: number;
   created_at: ISODateString;
   updated_at: ISODateString;
 }

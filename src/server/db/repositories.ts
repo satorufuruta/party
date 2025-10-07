@@ -80,7 +80,7 @@ export class QuestionRepository {
   async listByQuiz(quizId: string): Promise<QuestionRecord[]> {
     const stmt = this.db
       .prepare(
-        `SELECT id, quiz_id, text, order_index, time_limit_sec, created_at, updated_at
+        `SELECT id, quiz_id, text, order_index, time_limit_sec, reveal_duration_sec, created_at, updated_at
          FROM questions
          WHERE quiz_id = ?
          ORDER BY order_index ASC`
@@ -106,8 +106,8 @@ export class QuestionRepository {
   async createQuestion(record: QuestionRecord, choices: ChoiceRecord[]): Promise<void> {
     await this.db
       .prepare(
-        `INSERT INTO questions (id, quiz_id, text, order_index, time_limit_sec, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO questions (id, quiz_id, text, order_index, time_limit_sec, reveal_duration_sec, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .bind(
         record.id,
@@ -115,6 +115,7 @@ export class QuestionRepository {
         record.text,
         record.order_index,
         record.time_limit_sec,
+        record.reveal_duration_sec,
         record.created_at,
         record.updated_at
       )

@@ -14,6 +14,7 @@
 | `autoProgress` | boolean | 自動進行フラグ。管理者が介入で false になるケースあり |
 | `participants` | Map<string, ParticipantState> | 接続中参加者のステータス |
 | `pendingResults` | Map<string, AnswerSummary> | 回答締切後の結果計算キャッシュ |
+| `questions` | QuestionContent[] | セッション開始時に読み込んだ問題リスト。各要素は `revealDurationSec` (秒) を保持 |
 | `adminSockets` | Set<WebSocketId> | 管理画面向け WebSocket 接続一覧 |
 | `participantSockets` | Map<string, Set<WebSocketId>> | 参加者 ID ごとの WebSocket 集合 |
 | `queue` | Array<PendingCommand> | 管理者操作や自動遷移の予定キュー |
@@ -35,6 +36,18 @@ interface ParticipantState {
 interface AnswerSummary {
   questionId: string;
   totals: Record<string, number>; // choiceId -> count
+}
+
+interface QuestionContent {
+  id: string;
+  text: string;
+  timeLimitSec: number;
+  revealDurationSec: number; // 正解表示中の待機時間（秒）
+  choices: Array<{
+    id: string;
+    text: string;
+    isCorrect: boolean;
+  }>;
 }
 
 interface PendingCommand {
@@ -75,7 +88,7 @@ stateDiagram-v2
 | `startQuiz` | `lobby` | `question` | 管理画面操作 | `questionIndex=0`、タイマー開始、`quiz_start`/`question_start` をブロードキャスト |
 | `auto` | `lobby` | `question` | 自動開始設定 (省略可) | 同上。開始時刻を即時記録 |
 | `questionDeadline` | `question` | `reveal` | タイマー満了 or `forceEndQuestion` | 回答締切、集計、`question_end`/`answer_result` 送信、結果キャッシュ更新 |
-| `autoNextQuestion` | `reveal` | `question` | タイマー満了 | 次問題をロード、タイマー再設定、`question_start` 送信 |
+| `autoNextQuestion` | `reveal` | `question` | タイマー満了 (`revealDurationSec` 経過) | 次問題をロード、タイマー再設定、`question_start` 送信 |
 | `forceNext` | `question` | `question` | 管理者「次へ」操作 | 現問締切→次問開始を連続で実行 |
 | `skipToQuestion` | `question/reveal` | `question` | 管理者スキップ操作 | 指定 index の問題を読み込み、タイマー再設定、ステータス更新 |
 | `forceRevealExtend` | `reveal` | `reveal` | 管理者「リザルト延長」 | リザルト表示時間を延長し `questionDeadline` を更新 |

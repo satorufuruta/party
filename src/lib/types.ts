@@ -107,6 +107,7 @@ export type SocketEvent =
         orderIndex: number;
         text: string;
         timeLimitSec: number;
+        revealDurationSec: number;
         choices: Array<{ id: string; text: string; isCorrect: boolean }>;
       }>;
     };

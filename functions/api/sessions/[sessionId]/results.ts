@@ -1,4 +1,4 @@
-import { json, errorJson, type Env } from "../../_lib";
+import { json, errorJson, type Env, logInfo, logError } from "../../_lib";
 import {
   AnswerRepository,
   QuestionRepository,
@@ -11,15 +11,19 @@ export const onRequest: PagesFunction<Env> = async ({ request, env, params }) =>
     return errorJson(405, "method_not_allowed", "Unsupported method");
   }
 
-  const sessionId = params.sessionId;
-  if (!sessionId) {
+  const rawSessionId = params.sessionId;
+  if (typeof rawSessionId !== "string" || rawSessionId.length === 0) {
+    logError(request, "Missing sessionId for results", { params });
     return errorJson(400, "invalid_path", "sessionId is required");
   }
+  const sessionId = rawSessionId;
 
+  logInfo(request, "Fetching session results", { sessionId });
   const db = getDatabase(env);
   const sessionRepo = new SessionRepository(db);
   const session = await sessionRepo.getById(sessionId);
   if (!session) {
+    logError(request, "Session not found for results", { sessionId });
     return errorJson(404, "session_not_found", "Session not found");
   }
 
@@ -71,11 +75,17 @@ export const onRequest: PagesFunction<Env> = async ({ request, env, params }) =>
 
   const participantList = Array.from(participants.values()).sort((a, b) => b.score - a.score);
 
-  return json({
+  const responsePayload = {
     sessionId,
     summary: {
       totalParticipants: participantList.length,
     },
     participants: participantList,
+  };
+
+  logInfo(request, "Session results returned", {
+    sessionId,
+    participantCount: participantList.length,
   });
+  return json(responsePayload);
 };

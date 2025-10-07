@@ -4,7 +4,7 @@
 
 ## 1. シードデータの構造
 - `seeds/` ディレクトリを作成し、用途別に SQL ファイルを分割する。
-  - `seeds/base.sql`: users/quizzes/questions/choices の共通データ。
+- `seeds/base.sql`: users/quizzes/questions/choices の共通データ (`questions.reveal_duration_sec` を含む)。
   - `seeds/demo_session.sql`: デモ用セッション・回答データ。
 - 各 SQL ファイルは `INSERT ... ON CONFLICT DO NOTHING` で冪等化する。
 

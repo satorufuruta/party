@@ -9,6 +9,11 @@ Durable Object (`workers/index.ts`) はセッション初期化・問題進行�
 - **ロード済みクイズのキャッシュ更新**: クイズ内容が更新された場合の再読み込みフロー整備。
 - **テスト**: DO のユニットテスト/統合テストを追加し、タイマー・再接続シナリオを自動検証する。
 
+### メモ: `revealDurationSec`
+- 各 `QuestionContent` には結果表示用の待機時間を表す `revealDurationSec` (秒) を保持する。値が 0 の場合は締切直後に次の問題が始まる。
+- Durable Object は `finishCurrentQuestion` でこの値を参照し、自動進行 (`autoProgress`) 有効時に次の質問用アラームをスケジュールする。
+- スナップショット復元時は旧フォーマットとの互換のため、欠損値に既定の 5 秒を補完している。
+
 ## 今後のすすめ方
 1. HTTP API 側の `/api/quizzes/:quizId/sessions` 生成フローで DO `/initialize` 呼び出しを組み込み、セッション作成を自動化する。
 2. 役割ごとのメッセージ整形を整理し、参加者には回答有無のみ、管理者には集計詳細を提示するように調整する。

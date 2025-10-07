@@ -14,12 +14,13 @@ async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (!response.ok) {
     let message = `${response.status} ${response.statusText}`;
     try {
-      const data = await response.clone().json();
-      message = data?.error?.message ?? message;
+      const data = (await response.clone().json()) as { error?: { message?: string } };
+      message = data.error?.message ?? message;
     } catch {
       const text = await response.clone().text();
       if (text) message = text;
     }
+    console.error("[apiFetch] Request failed", { path, status: response.status, message });
     throw new Error(message);
   }
 
@@ -44,6 +45,7 @@ export interface QuizDetail extends QuizSummary {
     text: string;
     orderIndex: number;
     timeLimitSec: number;
+    revealDurationSec: number;
     choices: Array<{ id: string; text: string; isCorrect: boolean }>;
   }>;
 }

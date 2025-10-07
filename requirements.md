@@ -56,7 +56,7 @@ graph TD
   - 作成したクイズを開始し、参加用のURLを発行する。
   - 現在の参加者一覧と接続状況をリアルタイムで確認できる。
 - リアルタイム進行管理:
-  - 自動進行: 最初の問題を開始すると、以降は各問題に設定された時間で自動的に次の問題へ進行する。
+  - 自動進行: 最初の問題を開始すると、各問題に設定された制限時間とリザルト表示時間 (`revealDurationSec`) に従い自動で次へ進む。
   - 手動介入: 自動進行中であっても、管理画面から以下の操作を任意で行える。
     - 現在の問題を即時終了する。
     - 次の問題を即時開始する。
@@ -109,6 +109,6 @@ IaC: Cloudflareリソース（Worker, Durable Objects, D1のバインディン�
 テーブル名	カラム	説明
 users id, name 参加者の管理
 quizzes	id, title, description, created_at	クイズの基本情報
-questions	id, quiz_id, text, order_index, time_limit_sec	各問題の内容と順序、制限時間
+questions	id, quiz_id, text, order_index, time_limit_sec, reveal_duration_sec	各問題の内容と順序、制限時間、結果表示の待機秒数
 choices	id, question_id, text, is_correct	各問題の選択肢。is_correctで正解を指定
 answers	id, session_id, question_id, user_id, choice_id, submitted_at	ユーザーごとの回答ログ

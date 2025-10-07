@@ -116,9 +116,12 @@ export default function AdminDashboard() {
                   <ul className="mt-4 space-y-3 text-sm">
                     {quiz.questions.map((question, index) => (
                       <li key={question.id} className="rounded border border-slate-800 bg-slate-950/40 p-3">
-                        <div className="flex justify-between text-slate-300">
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-slate-300">
                           <span className="font-medium">Q{index + 1}</span>
-                          <span>{question.timeLimitSec} 秒</span>
+                          <span className="flex items-center gap-3 text-xs sm:text-sm">
+                            <span>制限 {question.timeLimitSec} 秒</span>
+                            <span>待機 {question.revealDurationSec} 秒</span>
+                          </span>
                         </div>
                         <p className="mt-2 text-slate-100">{question.text}</p>
                         <ol className="mt-2 space-y-1 text-slate-400">
