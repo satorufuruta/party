@@ -34,6 +34,7 @@ export const onRequest: PagesFunction<Env> = async ({ request, env, params }) =>
         orderIndex: question.order_index,
         timeLimitSec: question.time_limit_sec,
         revealDurationSec: question.reveal_duration_sec,
+        pendingResultSec: question.pending_result_sec,
         choices: choices.map((choice) => ({
           id: choice.id,
           text: choice.text,

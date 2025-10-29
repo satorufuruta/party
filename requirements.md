@@ -44,7 +44,7 @@ graph TD
 # 3. 機能要件
 ## 3.1. 参加者向け機能
 - クイズ参加: 指定されたURLからクイズセッションに参加できる。
-  - 各参加者は、割り振られたIDのURLで、自身に一意のクイズページにアクセスできる
+  - 各参加者は、運営から配布された `/quiz/{userId}` 形式のURLで、自身に一意のクイズページにアクセスする。`sessionId` は環境変数で固定値（例: `quiz1102`）を設定しておき、ブラウザが自動的に同じセッションへ接続する。
 - リアルタイム表示: サーバーからのプッシュ通知により、問題の表示・切り替えが自動で行われる。
 - 回答送信: 制限時間内に選択肢から回答を送信する。制限時間を過ぎると回答はできなくなる。
 - 結果表示: 各問題の終了時に、正解・不正解が即座に表示される。
@@ -55,8 +55,9 @@ graph TD
 - セッション管理:
   - 作成したクイズを開始し、参加用のURLを発行する。
   - 現在の参加者一覧と接続状況をリアルタイムで確認できる。
+  - シードされたユーザー情報を基に、各参加者専用の回答URLを管理画面からコピーできる。
 - リアルタイム進行管理:
-  - 自動進行: 最初の問題を開始すると、各問題に設定された制限時間とリザルト表示時間 (`revealDurationSec`) に従い自動で次へ進む。
+  - 自動進行: 最初の問題を開始すると、各問題に設定された制限時間 (`timeLimitSec`)、集計待機時間 (`pendingResultSec`)、結果表示時間 (`revealDurationSec`) に従い自動で次へ進む。
   - 手動介入: 自動進行中であっても、管理画面から以下の操作を任意で行える。
     - 現在の問題を即時終了する。
     - 次の問題を即時開始する。
@@ -86,7 +87,7 @@ graph TD
 
 client_to_server: submit_answer
 
-server_to_client: quiz_start, question_start, question_end, answer_result, quiz_finish
+server_to_client: session_ready, question_start, question_locked, question_reveal, answer_received, answer_result, quiz_finish
 
 ## 4.3. 状態管理と復帰処理
 ネットワーク切断からの復帰を考慮し、クライアントがWebSocketに接続・再接続した際、サーバー（Durable Object）は必ず現在のクイズの最新状態（現在の問題、残り時間など）を当該クライアントに送信する。
@@ -109,6 +110,6 @@ IaC: Cloudflareリソース（Worker, Durable Objects, D1のバインディン�
 テーブル名	カラム	説明
 users id, name 参加者の管理
 quizzes	id, title, description, created_at	クイズの基本情報
-questions	id, quiz_id, text, order_index, time_limit_sec, reveal_duration_sec	各問題の内容と順序、制限時間、結果表示の待機秒数
+questions	id, quiz_id, text, order_index, time_limit_sec, pending_result_sec, reveal_duration_sec	各問題の内容と順序、回答締切後の集計待機秒数、結果表示の待機秒数
 choices	id, question_id, text, is_correct	各問題の選択肢。is_correctで正解を指定
 answers	id, session_id, question_id, user_id, choice_id, submitted_at	ユーザーごとの回答ログ

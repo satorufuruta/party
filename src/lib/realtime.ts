@@ -23,10 +23,12 @@ export interface QuizSocket {
 }
 
 const getWorkerBaseUrl = () => {
+  const configured =
+    process.env.NEXT_PUBLIC_WORKER_BASE_URL ?? process.env.NEXT_PUBLIC_API_BASE ?? "";
   if (typeof window === "undefined") {
-    return process.env.NEXT_PUBLIC_WORKER_BASE_URL ?? "";
+    return configured;
   }
-  return process.env.NEXT_PUBLIC_WORKER_BASE_URL ?? window.location.origin;
+  return configured || window.location.origin;
 };
 
 export const createQuizSocket = (options: QuizSocketOptions): QuizSocket | null => {
@@ -35,7 +37,13 @@ export const createQuizSocket = (options: QuizSocketOptions): QuizSocket | null 
   }
 
   const baseUrl = options.workerUrl ?? getWorkerBaseUrl();
-  const wsUrl = new URL(`/ws/sessions/${options.sessionId}`, baseUrl);
+  const resolvedBase = baseUrl || window.location.origin;
+  const wsUrl = new URL(`/ws/sessions/${options.sessionId}`, resolvedBase);
+  if (wsUrl.protocol === "http:") {
+    wsUrl.protocol = "ws:";
+  } else if (wsUrl.protocol === "https:") {
+    wsUrl.protocol = "wss:";
+  }
   wsUrl.searchParams.set("role", options.role);
   if (options.userId) wsUrl.searchParams.set("userId", options.userId);
   if (options.displayName) wsUrl.searchParams.set("displayName", options.displayName);

@@ -4,14 +4,14 @@ Durable Object (`workers/index.ts`) はセッション初期化・問題進行�
 
 ## 未実装/改善ポイント
 - **バリデーション**: 管理者操作時のパラメータ検証をより厳格にし、UI からの異常入力を防ぐ。
-- **結果配信の最適化**: 参加者向けの `question_summary` 内容を役割別に出し分ける（閲覧権限が異なる場合に備えた整備）。
+- **結果配信の最適化**: 参加者向けの `question_reveal` 内容を役割別に出し分ける（閲覧権限が異なる場合に備えた整備）。
 - **接続管理の永続化**: 切断時のステータス更新を確実に永続化する仕組み（バッチ書き込みや periodic cleanup）。
 - **ロード済みクイズのキャッシュ更新**: クイズ内容が更新された場合の再読み込みフロー整備。
 - **テスト**: DO のユニットテスト/統合テストを追加し、タイマー・再接続シナリオを自動検証する。
 
-### メモ: `revealDurationSec`
-- 各 `QuestionContent` には結果表示用の待機時間を表す `revealDurationSec` (秒) を保持する。値が 0 の場合は締切直後に次の問題が始まる。
-- Durable Object は `finishCurrentQuestion` でこの値を参照し、自動進行 (`autoProgress`) 有効時に次の質問用アラームをスケジュールする。
+### メモ: `pendingResultSec` / `revealDurationSec`
+- 各 `QuestionContent` には回答締切後の集計待機秒数 `pendingResultSec` と、結果表示を継続する `revealDurationSec` (秒) を保持する。値が 0 の場合は該当フェーズをスキップする。
+- Durable Object は `lockCurrentQuestion` で `pendingResultSec` を消化し、続けて `revealCurrentQuestion` で `revealDurationSec` を参照して次の質問用アラームをスケジュールする。
 - スナップショット復元時は旧フォーマットとの互換のため、欠損値に既定の 5 秒を補完している。
 
 ## 今後のすすめ方

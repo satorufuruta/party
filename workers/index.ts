@@ -2,35 +2,235 @@
 // Provides WebSocket scaffolding aligned with quiz-state-protocol.md and
 // placeholder HTTP handlers for session control commands.
 
-import {
-  AnswerRepository,
-  QuestionRepository,
-  getDatabase,
-  type DatabaseEnv,
-} from "../src/server/db";
+import { AnswerRepository, QuestionRepository, getDatabase, type DatabaseEnv } from "../src/server/db";
+import { onRequest as quizzesIndexHandler } from "../functions/api/quizzes/index";
+import { onRequest as quizDetailHandler } from "../functions/api/quizzes/[quizId]";
+import { onRequest as quizSessionHandler } from "../functions/api/quizzes/[quizId]/sessions";
+import { onRequest as usersIndexHandler } from "../functions/api/users/index";
+import { onRequest as userDetailHandler } from "../functions/api/users/[userId]";
+import { onRequest as quizInviteHandler } from "../functions/quiz/[publicId]";
+import { onRequest as quizCurrentUserHandler } from "../functions/quiz/api/users/me";
+import { onRequest as quizIdentifyHandler } from "../functions/quiz/api/users/identify";
 
 interface Env extends DatabaseEnv {
   QUIZ_ROOM_DO: DurableObjectNamespace;
+  CORS_ALLOWED_ORIGINS?: string;
 }
 
-export default {
-  async fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
+const DEFAULT_DEV_CORS_ORIGINS = new Set(["*"]);
+
+const parseAllowedOrigins = (env: Env): Set<string> => {
+  const raw = env.CORS_ALLOWED_ORIGINS;
+  if (!raw) {
+    return DEFAULT_DEV_CORS_ORIGINS;
+  }
+  return new Set(
+    raw
+      .split(",")
+      .map((origin) => origin.trim())
+      .filter((origin) => origin.length > 0)
+  );
+};
+
+const isSameOrigin = (request: Request, origin: string): boolean => new URL(request.url).origin === origin;
+
+const resolveAllowedOrigin = (request: Request, env: Env): string | null => {
+  const origin = request.headers.get("Origin");
+  if (!origin) {
+    return null;
+  }
+  const allowed = parseAllowedOrigins(env);
+  if (allowed.has("*")) {
+    return origin ?? "*";
+  }
+  if (isSameOrigin(request, origin) || allowed.has(origin)) {
+    return origin;
+  }
+  return null;
+};
+
+const createCorsResponse = (status: number, headers: Headers): Response =>
+  new Response(null, { status, headers });
+
+const handleCorsPreflight = (request: Request, env: Env): Response => {
+  const allowedOrigin = resolveAllowedOrigin(request, env);
+  if (!allowedOrigin) {
+    return new Response(null, { status: 400 });
+  }
+  const headers = new Headers();
+  headers.set("Access-Control-Allow-Origin", allowedOrigin);
+  if (allowedOrigin !== "*") {
+    headers.append("Vary", "Origin");
+    headers.set("Access-Control-Allow-Credentials", "true");
+  }
+  const requestMethod = request.headers.get("Access-Control-Request-Method") ?? "GET,POST,PUT,DELETE,OPTIONS";
+  headers.set("Access-Control-Allow-Methods", requestMethod);
+  const requestHeaders = request.headers.get("Access-Control-Request-Headers");
+  if (requestHeaders) {
+    headers.set("Access-Control-Allow-Headers", requestHeaders);
+  }
+  headers.set("Access-Control-Max-Age", "600");
+  return createCorsResponse(204, headers);
+};
+
+const applyCorsHeaders = (request: Request, env: Env, response: Response): Response => {
+  const allowedOrigin = resolveAllowedOrigin(request, env);
+  if (!allowedOrigin) {
+    return response;
+  }
+  const headers = new Headers(response.headers);
+  headers.set("Access-Control-Allow-Origin", allowedOrigin);
+  if (allowedOrigin !== "*") {
+    headers.append("Vary", "Origin");
+    headers.set("Access-Control-Allow-Credentials", "true");
+  }
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+};
+
+const worker = {
+  async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+    const isQuizApiRequest = url.pathname.startsWith("/quiz/api/");
+    const isApiRequest = url.pathname.startsWith("/api/") || isQuizApiRequest;
+
+    if (isApiRequest && request.method === "OPTIONS") {
+      return handleCorsPreflight(request, env);
+    }
+    const origin = request.headers.get("Origin");
+    if (isApiRequest && origin && !resolveAllowedOrigin(request, env)) {
+      return new Response("CORS origin denied", { status: 403 });
+    }
 
     if (request.headers.get("Upgrade") === "websocket" && url.pathname.startsWith("/ws/sessions/")) {
       return handleSessionWebSocket(request, env);
     }
 
+    if (url.pathname.startsWith("/api/quizzes")) {
+      const response = await handleQuizRoutes(request, env, url);
+      if (response) {
+        return applyCorsHeaders(request, env, response);
+      }
+    }
+
+    if (url.pathname.startsWith("/api/users")) {
+      const response = await handleUserRoutes(request, env, url);
+      if (response) {
+        return applyCorsHeaders(request, env, response);
+      }
+    }
+
+    if (url.pathname.startsWith("/quiz/api/")) {
+      const response = await handleParticipantApi(request, env, url);
+      if (response) {
+        return applyCorsHeaders(request, env, response);
+      }
+    }
+
+    const inviteMatch = url.pathname.match(/^\/quiz\/([0-9a-f-]{8}-[0-9a-f-]{4}-[0-9a-f-]{4}-[0-9a-f-]{4}-[0-9a-f-]{12})$/i);
+    if (inviteMatch) {
+      const publicId = inviteMatch[1];
+      return await invokePagesFunction(quizInviteHandler, request, env, { publicId });
+    }
+
     if (url.pathname === "/healthz") {
-      return new Response("ok", { status: 200 });
+      const response = new Response("ok", { status: 200 });
+      return isApiRequest ? applyCorsHeaders(request, env, response) : response;
     }
 
     if (url.pathname.startsWith("/api/sessions/")) {
-      return handleSessionApi(request, env);
+      const response = await handleSessionApi(request, env);
+      return applyCorsHeaders(request, env, response);
     }
 
-    return new Response("Not Found", { status: 404 });
+    const notFound = new Response("Not Found", { status: 404 });
+    return isApiRequest ? applyCorsHeaders(request, env, notFound) : notFound;
   },
+};
+
+export default worker;
+
+type PagesContext = Parameters<PagesFunction<Env>>[0];
+
+const invokePagesFunction = async (
+  handler: (context: PagesContext) => Response | Promise<Response>,
+  request: Request,
+  env: Env,
+  params: Record<string, string>
+): Promise<Response> => {
+  const context = {
+    request,
+    env,
+    params,
+    functionPath: "",
+    waitUntil: (promise: Promise<unknown>) => {
+      void promise;
+    },
+    passThroughOnException: () => {},
+    next: async () => new Response("Not Found", { status: 404 }),
+    data: {},
+  } as PagesContext;
+  return await handler(context);
+};
+
+const normalizePathname = (pathname: string): string => {
+  if (pathname === "/") return pathname;
+  return pathname.replace(/\/+$/, "");
+};
+
+const handleQuizRoutes = async (request: Request, env: Env, url: URL): Promise<Response | null> => {
+  const pathname = normalizePathname(url.pathname);
+
+  if (pathname === "/api/quizzes") {
+    return await invokePagesFunction(quizzesIndexHandler, request, env, {});
+  }
+
+  const sessionMatch = pathname.match(/^\/api\/quizzes\/([^/]+)\/sessions$/);
+  if (sessionMatch) {
+    const quizId = decodeURIComponent(sessionMatch[1]);
+    return await invokePagesFunction(quizSessionHandler, request, env, { quizId });
+  }
+
+  const detailMatch = pathname.match(/^\/api\/quizzes\/([^/]+)$/);
+  if (detailMatch) {
+    const quizId = decodeURIComponent(detailMatch[1]);
+    return await invokePagesFunction(quizDetailHandler, request, env, { quizId });
+  }
+
+  return null;
+};
+
+const handleUserRoutes = async (request: Request, env: Env, url: URL): Promise<Response | null> => {
+  const pathname = normalizePathname(url.pathname);
+
+  if (pathname === "/api/users") {
+    return await invokePagesFunction(usersIndexHandler, request, env, {});
+  }
+
+  const detailMatch = pathname.match(/^\/api\/users\/([^/]+)$/);
+  if (detailMatch) {
+    const userId = decodeURIComponent(detailMatch[1]);
+    return await invokePagesFunction(userDetailHandler, request, env, { userId });
+  }
+
+  return null;
+};
+
+const handleParticipantApi = async (request: Request, env: Env, url: URL): Promise<Response | null> => {
+  const pathname = normalizePathname(url.pathname);
+
+  if (pathname === "/quiz/api/users/me") {
+    return await invokePagesFunction(quizCurrentUserHandler, request, env, {});
+  }
+
+  if (pathname === "/quiz/api/users/identify") {
+    return await invokePagesFunction(quizIdentifyHandler, request, env, {});
+  }
+
+  return null;
 };
 
 async function handleSessionApi(request: Request, env: Env): Promise<Response> {
@@ -80,7 +280,7 @@ async function handleSessionWebSocket(request: Request, env: Env): Promise<Respo
   return await stub.fetch(forwarded);
 }
 
-type SessionStatus = "idle" | "lobby" | "question" | "reveal" | "finished";
+type SessionStatus = "idle" | "lobby" | "question" | "answers_locked" | "reveal" | "finished";
 
 type ClientRole = "participant" | "admin";
 
@@ -116,6 +316,7 @@ interface QuestionContent {
   text: string;
   timeLimitSec: number;
   revealDurationSec: number;
+  pendingResultSec: number;
   choices: QuestionChoiceSnapshot[];
 }
 
@@ -127,6 +328,9 @@ interface SessionSnapshot {
   currentQuestionId: string | null;
   questionStartedAt: number | null;
   questionDeadline: number | null;
+  questionLockedAt: number | null;
+  questionRevealAt: number | null;
+  questionRevealEndsAt: number | null;
   autoProgress: boolean;
   participants: Record<string, ParticipantStateSnapshot>;
   pendingResults: Record<string, AnswerSummarySnapshot>;
@@ -181,6 +385,10 @@ interface SessionReadyPayload {
   quizId: string;
   questionIndex: number;
   questionDeadline: number | null;
+  questionStartedAt: number | null;
+  questionLockedAt: number | null;
+  questionRevealAt: number | null;
+  questionRevealEndsAt: number | null;
   autoProgress: boolean;
   participants: ParticipantStateSnapshot[];
 }
@@ -191,23 +399,7 @@ interface QuestionEventPayload {
   question?: Record<string, unknown>;
 }
 
-interface AnswerResultPayload {
-  questionIndex: number;
-  isCorrect: boolean;
-  correctChoiceId: string;
-  choiceId: string;
-  questionId: string;
-  userId: string;
-}
-
-interface QuestionSummaryPayload {
-  questionIndex: number;
-  totals: Record<string, number>;
-  correctChoiceIds: string[];
-}
-
 interface AdminSessionStatePayload extends SessionReadyPayload {
-  questionStartedAt: number | null;
   pendingResults: Record<string, AnswerSummarySnapshot>;
   questions: QuestionContent[];
 }
@@ -217,12 +409,13 @@ function now(): number {
 }
 
 interface AlarmMetadata {
-  type: "question_deadline" | "reveal_to_next";
+  type: "question_deadline" | "answers_locked_to_reveal" | "reveal_to_next";
   questionIndex: number;
   scheduledAt: number;
 }
 
 const DEFAULT_REVEAL_DURATION_MS = 5000;
+const DEFAULT_PENDING_RESULT_MS = 5000;
 
 const workerLog = (...args: unknown[]): void => {
   console.log("[QuizRoom]", ...args);
@@ -251,6 +444,9 @@ export class QuizRoomDurableObject {
       currentQuestionId: null,
       questionStartedAt: null,
       questionDeadline: null,
+      questionLockedAt: null,
+      questionRevealAt: null,
+      questionRevealEndsAt: null,
       autoProgress: true,
       participants: {},
       pendingResults: {},
@@ -266,6 +462,9 @@ export class QuizRoomDurableObject {
       if (storedSession) {
         this.snapshot = storedSession;
         this.snapshot.currentQuestionId ??= null;
+        this.snapshot.questionLockedAt ??= null;
+        this.snapshot.questionRevealAt ??= null;
+        this.snapshot.questionRevealEndsAt ??= null;
         this.snapshot.pendingResults ??= {};
         this.snapshot.participants ??= {};
         this.snapshot.autoProgress ??= true;
@@ -283,6 +482,7 @@ export class QuizRoomDurableObject {
         this.questions = storedQuestions.map((question) => ({
           ...question,
           revealDurationSec: question.revealDurationSec ?? DEFAULT_REVEAL_DURATION_MS / 1000,
+          pendingResultSec: question.pendingResultSec ?? DEFAULT_PENDING_RESULT_MS / 1000,
         }));
         workerLog("Restored question cache", { count: this.questions.length });
       }
@@ -375,6 +575,7 @@ export class QuizRoomDurableObject {
         text: record.text,
         timeLimitSec: record.time_limit_sec,
         revealDurationSec: record.reveal_duration_sec ?? DEFAULT_REVEAL_DURATION_MS / 1000,
+        pendingResultSec: record.pending_result_sec ?? DEFAULT_PENDING_RESULT_MS / 1000,
         choices: choices.map((choice) => ({
           id: choice.id,
           text: choice.text,
@@ -384,6 +585,12 @@ export class QuizRoomDurableObject {
       order += 1;
     }
 
+    const resetTimestamp = now();
+    for (const participant of Object.values(this.snapshot.participants)) {
+      participant.answers = {};
+      participant.lastSeen = resetTimestamp;
+    }
+
     this.snapshot.sessionId = sessionId;
     this.snapshot.quizId = quizId;
     this.snapshot.status = "lobby";
@@ -391,6 +598,9 @@ export class QuizRoomDurableObject {
     this.snapshot.currentQuestionId = null;
     this.snapshot.questionStartedAt = null;
     this.snapshot.questionDeadline = null;
+    this.snapshot.questionLockedAt = null;
+    this.snapshot.questionRevealAt = null;
+    this.snapshot.questionRevealEndsAt = null;
     this.snapshot.pendingResults = {};
     if (typeof autoProgressPayload === "boolean") {
       this.snapshot.autoProgress = autoProgressPayload;
@@ -399,6 +609,10 @@ export class QuizRoomDurableObject {
 
     await this.persistState();
     await this.setAlarmMetadata(null);
+
+    for (const connection of this.connections.values()) {
+      this.handleSyncRequest(connection);
+    }
 
     workerLog("Session initialized", {
       sessionId: this.snapshot.sessionId,
@@ -477,7 +691,11 @@ export class QuizRoomDurableObject {
     switch (action) {
       case "next":
         if (this.snapshot.status === "question") {
-          await this.finishCurrentQuestion({ skipAutoProgress: true });
+          await this.lockCurrentQuestion({ immediateReveal: true, skipPending: true, skipAutoProgress: true });
+        } else if (this.snapshot.status === "answers_locked") {
+          await this.revealCurrentQuestion({ skipAutoProgress: true });
+        } else if (this.snapshot.status === "reveal") {
+          await this.setAlarmMetadata(null);
         }
 
         if (this.hasNextQuestion()) {
@@ -489,7 +707,11 @@ export class QuizRoomDurableObject {
       case "skip":
         if (typeof payload?.questionIndex === "number") {
           if (this.snapshot.status === "question") {
-            await this.finishCurrentQuestion({ skipAutoProgress: true });
+            await this.lockCurrentQuestion({ immediateReveal: true, skipPending: true, skipAutoProgress: true });
+          } else if (this.snapshot.status === "answers_locked") {
+            await this.revealCurrentQuestion({ skipAutoProgress: true });
+          } else if (this.snapshot.status === "reveal") {
+            await this.setAlarmMetadata(null);
           }
 
           if (!this.getQuestion(payload.questionIndex)) {
@@ -521,7 +743,11 @@ export class QuizRoomDurableObject {
           sessionId: this.snapshot.sessionId,
           questionIndex: this.snapshot.questionIndex,
         });
-        await this.finishCurrentQuestion();
+        if (this.snapshot.status === "question") {
+          await this.lockCurrentQuestion({ immediateReveal: true, skipPending: true });
+        } else if (this.snapshot.status === "answers_locked") {
+          await this.revealCurrentQuestion();
+        }
         break;
       default:
         workerError("Advance action unknown", { action });
@@ -688,6 +914,10 @@ export class QuizRoomDurableObject {
       quizId: this.snapshot.quizId,
       questionIndex: this.snapshot.questionIndex,
       questionDeadline: this.snapshot.questionDeadline,
+      questionStartedAt: this.snapshot.questionStartedAt,
+      questionLockedAt: this.snapshot.questionLockedAt,
+      questionRevealAt: this.snapshot.questionRevealAt,
+      questionRevealEndsAt: this.snapshot.questionRevealEndsAt,
       autoProgress: this.snapshot.autoProgress,
       participants,
     };
@@ -696,7 +926,9 @@ export class QuizRoomDurableObject {
 
     const currentQuestion = this.getCurrentQuestion();
 
-    if (this.snapshot.status === "question" && currentQuestion) {
+    const activeStatuses: SessionStatus[] = ["question", "answers_locked", "reveal"];
+
+    if (currentQuestion && activeStatuses.includes(this.snapshot.status)) {
       const questionPayload: QuestionEventPayload & { question: Record<string, unknown> } = {
         questionIndex: this.snapshot.questionIndex,
         deadline: this.snapshot.questionDeadline,
@@ -705,23 +937,55 @@ export class QuizRoomDurableObject {
       this.send(context, { type: "question_start", sessionId: this.snapshot.sessionId, timestamp: now(), ...questionPayload });
     }
 
-    if (this.snapshot.status === "reveal" && currentQuestion) {
-      const summary = this.snapshot.pendingResults[currentQuestion.id];
-
+    if (currentQuestion && (this.snapshot.status === "answers_locked" || this.snapshot.status === "reveal")) {
+      const lockedAt = this.snapshot.questionLockedAt ?? now();
+      const revealAt = this.snapshot.questionRevealAt ?? lockedAt;
       this.send(context, {
-        type: "question_end",
+        type: "question_locked",
         sessionId: this.snapshot.sessionId,
         timestamp: now(),
         questionIndex: this.snapshot.questionIndex,
+        questionId: currentQuestion.id,
+        lockedAt,
+        revealAt,
+      });
+    }
+
+    if (currentQuestion && this.snapshot.status === "reveal") {
+      const lockedAt = this.snapshot.questionLockedAt ?? now();
+      const revealAt = this.snapshot.questionRevealAt ?? lockedAt;
+      const revealEndsAt = this.snapshot.questionRevealEndsAt ?? revealAt;
+      const summary =
+        this.snapshot.pendingResults[currentQuestion.id] ?? this.computeSummary(currentQuestion);
+
+      this.send(context, {
+        type: "question_reveal",
+        sessionId: this.snapshot.sessionId,
+        timestamp: now(),
+        questionIndex: this.snapshot.questionIndex,
+        questionId: currentQuestion.id,
+        revealAt,
+        revealEndsAt,
+        totals: summary.totals,
+        correctChoiceIds: summary.correctChoiceIds,
       });
 
-      if (summary) {
-        const summaryPayload: QuestionSummaryPayload = {
-          questionIndex: this.snapshot.questionIndex,
-          totals: summary.totals,
-          correctChoiceIds: summary.correctChoiceIds,
-        };
-        this.send(context, { type: "question_summary", sessionId: this.snapshot.sessionId, timestamp: now(), ...summaryPayload });
+      if (context.role === "participant" && context.userId) {
+        const participant = this.snapshot.participants[context.userId];
+        const answer = participant?.answers?.[currentQuestion.id];
+        if (participant && answer) {
+          this.send(context, {
+            type: "answer_result",
+            sessionId: this.snapshot.sessionId,
+            timestamp: now(),
+            questionIndex: this.snapshot.questionIndex,
+            isCorrect: Boolean(answer.isCorrect),
+            correctChoiceId: summary.correctChoiceIds[0] ?? "",
+            choiceId: answer.choiceId,
+            questionId: currentQuestion.id,
+            userId: participant.userId,
+          });
+        }
       }
     }
 
@@ -811,15 +1075,13 @@ export class QuizRoomDurableObject {
       submitted_at: new Date(submittedAt).toISOString(),
     });
 
-    this.send(context, {
-      type: "answer_result",
+    this.sendToParticipant(context.userId, {
+      type: "answer_received",
       sessionId: this.snapshot.sessionId,
       timestamp: submittedAt,
       questionIndex: this.snapshot.questionIndex,
-      isCorrect,
-      correctChoiceId: correctChoiceIds[0] ?? "",
-      choiceId: message.choiceId,
       questionId: question.id,
+      choiceId: message.choiceId,
       userId: context.userId,
     });
   }
@@ -922,6 +1184,14 @@ export class QuizRoomDurableObject {
     }
   }
 
+  private sendToParticipant(userId: string, payload: Record<string, unknown>): void {
+    for (const connection of this.connections.values()) {
+      if (connection.role === "participant" && connection.userId === userId) {
+        this.send(connection, payload);
+      }
+    }
+  }
+
   private toParticipantQuestion(question: QuestionContent): Record<string, unknown> {
     return {
       id: question.id,
@@ -959,6 +1229,9 @@ export class QuizRoomDurableObject {
     this.snapshot.currentQuestionId = question.id;
     this.snapshot.questionStartedAt = now();
     this.snapshot.questionDeadline = question.timeLimitSec > 0 ? this.snapshot.questionStartedAt + question.timeLimitSec * 1000 : null;
+    this.snapshot.questionLockedAt = null;
+    this.snapshot.questionRevealAt = null;
+    this.snapshot.questionRevealEndsAt = null;
     delete this.snapshot.pendingResults[question.id];
 
     workerLog("Question started", {
@@ -983,13 +1256,17 @@ export class QuizRoomDurableObject {
     this.broadcastQuestionStart(question);
   }
 
-  private async finishCurrentQuestion(options: { skipAutoProgress?: boolean } = {}): Promise<void> {
-    const { skipAutoProgress = false } = options;
+  private async lockCurrentQuestion(options: { immediateReveal?: boolean; skipPending?: boolean; skipAutoProgress?: boolean } = {}): Promise<void> {
+    const { immediateReveal = false, skipPending = false, skipAutoProgress = false } = options;
+
     if (this.snapshot.status !== "question") {
-      workerLog("finishCurrentQuestion called outside question phase", {
+      workerLog("lockCurrentQuestion called outside question phase", {
         status: this.snapshot.status,
         sessionId: this.snapshot.sessionId,
       });
+      if (immediateReveal && (this.snapshot.status === "answers_locked" || this.snapshot.status === "reveal")) {
+        await this.revealCurrentQuestion({ skipAutoProgress });
+      }
       return;
     }
 
@@ -1001,33 +1278,102 @@ export class QuizRoomDurableObject {
 
     await this.setAlarmMetadata(null);
 
-    const summary = this.computeSummary(question);
-    this.snapshot.status = "reveal";
-    this.snapshot.questionDeadline = null;
-    this.snapshot.pendingResults[question.id] = summary;
+    const lockedAt = now();
+    const pendingDelayMs = skipPending ? 0 : Math.max(0, (question.pendingResultSec ?? DEFAULT_PENDING_RESULT_MS / 1000) * 1000);
+    const revealDurationMs = Math.max(0, (question.revealDurationSec ?? DEFAULT_REVEAL_DURATION_MS / 1000) * 1000);
+    const revealAt = lockedAt + pendingDelayMs;
+    const revealEndsAt = revealAt + revealDurationMs;
 
-    workerLog("Question finished", {
+    this.snapshot.status = "answers_locked";
+    this.snapshot.questionDeadline = null;
+    this.snapshot.questionLockedAt = lockedAt;
+    this.snapshot.questionRevealAt = revealAt;
+    this.snapshot.questionRevealEndsAt = revealEndsAt;
+
+    workerLog("Question locked", {
       sessionId: this.snapshot.sessionId,
       questionIndex: this.snapshot.questionIndex,
       questionId: question.id,
-      skipAutoProgress,
-      totals: summary.totals,
-      correctChoices: summary.correctChoiceIds,
+      lockedAt,
+      revealAt,
+      pendingDelayMs,
+      immediateReveal,
     });
 
     await this.persistState();
 
-    this.broadcastQuestionEnd(question, summary);
+    this.broadcastQuestionLocked(question, lockedAt, revealAt);
+
+    if (!immediateReveal && pendingDelayMs > 0) {
+      await this.setAlarmMetadata({
+        type: "answers_locked_to_reveal",
+        questionIndex: this.snapshot.questionIndex,
+        scheduledAt: revealAt,
+      });
+      workerLog("Scheduled reveal after pending window", {
+        sessionId: this.snapshot.sessionId,
+        questionIndex: this.snapshot.questionIndex,
+        scheduledAt: revealAt,
+      });
+      return;
+    }
+
+    await this.revealCurrentQuestion({ skipAutoProgress });
+  }
+
+  private async revealCurrentQuestion(options: { skipAutoProgress?: boolean } = {}): Promise<void> {
+    const { skipAutoProgress = false } = options;
+    if (this.snapshot.status !== "answers_locked" && this.snapshot.status !== "question") {
+      workerLog("revealCurrentQuestion called in non-lock state", {
+        status: this.snapshot.status,
+        sessionId: this.snapshot.sessionId,
+      });
+      if (this.snapshot.status === "reveal" && skipAutoProgress) {
+        await this.setAlarmMetadata(null);
+      }
+      return;
+    }
+
+    const question = this.getCurrentQuestion();
+    if (!question) {
+      await this.finalizeQuiz();
+      return;
+    }
+
+    await this.setAlarmMetadata(null);
+
+    const revealAt = this.snapshot.questionRevealAt ?? now();
+    const revealEndsAt =
+      this.snapshot.questionRevealEndsAt ??
+      revealAt + Math.max(0, (question.revealDurationSec ?? DEFAULT_REVEAL_DURATION_MS / 1000) * 1000);
+
+    const summary = this.computeSummary(question);
+    this.snapshot.status = "reveal";
+    this.snapshot.questionLockedAt ??= revealAt;
+    this.snapshot.questionRevealAt = revealAt;
+    this.snapshot.questionRevealEndsAt = revealEndsAt;
+    this.snapshot.pendingResults[question.id] = summary;
+
+    workerLog("Question reveal", {
+      sessionId: this.snapshot.sessionId,
+      questionIndex: this.snapshot.questionIndex,
+      questionId: question.id,
+      revealAt,
+      revealEndsAt,
+      totals: summary.totals,
+      correctChoices: summary.correctChoiceIds,
+      skipAutoProgress,
+    });
+
+    await this.persistState();
+
+    this.broadcastQuestionReveal(question, summary, revealAt, revealEndsAt);
+    this.broadcastAnswerResults(question, summary);
 
     if (!skipAutoProgress && this.snapshot.autoProgress) {
-      const revealDelayMs = Math.max(
-        0,
-        (question.revealDurationSec ?? DEFAULT_REVEAL_DURATION_MS / 1000) * 1000
-      );
-
       if (this.hasNextQuestion()) {
-        if (revealDelayMs === 0) {
-          workerLog("Auto-progressing immediately to next question", {
+        if (revealEndsAt <= now()) {
+          workerLog("Auto-progressing immediately to next question after reveal", {
             sessionId: this.snapshot.sessionId,
             nextIndex: this.snapshot.questionIndex + 1,
           });
@@ -1036,12 +1382,22 @@ export class QuizRoomDurableObject {
           await this.setAlarmMetadata({
             type: "reveal_to_next",
             questionIndex: this.snapshot.questionIndex,
-            scheduledAt: now() + revealDelayMs,
+            scheduledAt: revealEndsAt,
           });
-          workerLog("Scheduled auto-progress", {
+          workerLog("Scheduled auto-progress after reveal", {
             sessionId: this.snapshot.sessionId,
-            delayMs: revealDelayMs,
+            delayMs: Math.max(0, revealEndsAt - now()),
             nextIndex: this.snapshot.questionIndex + 1,
+          });
+        }
+      } else {
+        if (revealEndsAt <= now()) {
+          await this.finalizeQuiz();
+        } else {
+          await this.setAlarmMetadata({
+            type: "reveal_to_next",
+            questionIndex: this.snapshot.questionIndex,
+            scheduledAt: revealEndsAt,
           });
         }
       }
@@ -1072,6 +1428,10 @@ export class QuizRoomDurableObject {
     this.snapshot.status = "finished";
     this.snapshot.questionDeadline = null;
     this.snapshot.currentQuestionId = null;
+    this.snapshot.questionStartedAt = null;
+    this.snapshot.questionLockedAt = null;
+    this.snapshot.questionRevealAt = null;
+    this.snapshot.questionRevealEndsAt = null;
     await this.persistState();
     workerLog("Quiz finalized", { sessionId: this.snapshot.sessionId });
     this.broadcast({ type: "quiz_finish", sessionId: this.snapshot.sessionId, timestamp: now() }, "all");
@@ -1090,31 +1450,76 @@ export class QuizRoomDurableObject {
     this.broadcast({ type: "question_start", sessionId: this.snapshot.sessionId, timestamp: now(), ...payload }, "all");
   }
 
-  private broadcastQuestionEnd(question: QuestionContent, summary: AnswerSummarySnapshot): void {
-    workerLog("Broadcasting question_end", {
+  private broadcastQuestionLocked(question: QuestionContent, lockedAt: number, revealAt: number): void {
+    workerLog("Broadcasting question_locked", {
       sessionId: this.snapshot.sessionId,
       questionIndex: this.snapshot.questionIndex,
+      lockedAt,
+      revealAt,
     });
     this.broadcast(
-      { type: "question_end", sessionId: this.snapshot.sessionId, timestamp: now(), questionIndex: this.snapshot.questionIndex },
+      {
+        type: "question_locked",
+        sessionId: this.snapshot.sessionId,
+        timestamp: now(),
+        questionIndex: this.snapshot.questionIndex,
+        questionId: question.id,
+        lockedAt,
+        revealAt,
+      },
       "all"
     );
-    workerLog("Broadcasting question_summary", {
+  }
+
+  private broadcastQuestionReveal(
+    question: QuestionContent,
+    summary: AnswerSummarySnapshot,
+    revealAt: number,
+    revealEndsAt: number
+  ): void {
+    workerLog("Broadcasting question_reveal", {
       sessionId: this.snapshot.sessionId,
       questionIndex: this.snapshot.questionIndex,
+      revealAt,
+      revealEndsAt,
       totals: summary.totals,
     });
     this.broadcast(
       {
-        type: "question_summary",
+        type: "question_reveal",
         sessionId: this.snapshot.sessionId,
         timestamp: now(),
         questionIndex: this.snapshot.questionIndex,
+        questionId: question.id,
+        revealAt,
+        revealEndsAt,
         totals: summary.totals,
         correctChoiceIds: summary.correctChoiceIds,
       },
       "all"
     );
+  }
+
+  private broadcastAnswerResults(question: QuestionContent, summary: AnswerSummarySnapshot): void {
+    const correctChoiceId = summary.correctChoiceIds[0] ?? "";
+    for (const participant of Object.values(this.snapshot.participants)) {
+      const answer = participant.answers?.[question.id];
+      if (!answer) {
+        continue;
+      }
+      const payload = {
+        type: "answer_result",
+        sessionId: this.snapshot.sessionId,
+        timestamp: now(),
+        questionIndex: this.snapshot.questionIndex,
+        isCorrect: Boolean(answer.isCorrect),
+        correctChoiceId,
+        choiceId: answer.choiceId,
+        questionId: question.id,
+        userId: participant.userId,
+      };
+      this.sendToParticipant(participant.userId, payload);
+    }
   }
 
   private async relayControlResponse(response: Response, context: ConnectionContext): Promise<void> {
@@ -1147,14 +1552,13 @@ export class QuizRoomDurableObject {
 
   private async setAlarmMetadata(meta: AlarmMetadata | null): Promise<void> {
     this.alarmMeta = meta;
-    const setAlarm = this.state.storage.setAlarm as unknown as (time?: number) => Promise<void>;
     if (meta) {
       await this.state.storage.put("alarm_meta", meta);
-      await setAlarm(meta.scheduledAt);
+      await this.state.storage.setAlarm(meta.scheduledAt);
       workerLog("Alarm scheduled", meta);
     } else {
       await this.state.storage.delete("alarm_meta");
-      await setAlarm();
+      await this.state.storage.deleteAlarm();
       workerLog("Alarm cleared", { sessionId: this.snapshot.sessionId });
     }
   }
@@ -1178,7 +1582,15 @@ export class QuizRoomDurableObject {
     switch (meta.type) {
       case "question_deadline":
         if (this.snapshot.status === "question" && this.snapshot.questionIndex === meta.questionIndex) {
-          await this.finishCurrentQuestion();
+          await this.lockCurrentQuestion();
+        }
+        break;
+      case "answers_locked_to_reveal":
+        if (
+          (this.snapshot.status === "answers_locked" || this.snapshot.status === "question") &&
+          this.snapshot.questionIndex === meta.questionIndex
+        ) {
+          await this.revealCurrentQuestion();
         }
         break;
       case "reveal_to_next":

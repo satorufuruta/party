@@ -4,6 +4,9 @@ compatibility_date = "2024-12-05"
 compatibility_flags = ["nodejs_compat"]
 usage_model = "bundled"
 
+[vars]
+DEFAULT_SESSION_ID = "quiz1102"
+
 [observability]
 enabled = true
 
@@ -19,10 +22,15 @@ new_classes = ["QuizRoomDurableObject"]
 [[d1_databases]]
 binding = "PARTY_DB"
 database_name = "party-db"
-database_id = "TODO_REPLACE_WITH_PRODUCTION_D1_ID"
+database_id = "48bb2355-5862-48e4-9cd8-cf616521610c"
 
 [env.dev]
-vars = { AUTO_PROGRESS_DEFAULT = "true" }
+vars = { AUTO_PROGRESS_DEFAULT = "true", DEFAULT_SESSION_ID = "quiz1102" }
+
+[env.dev.durable_objects]
+bindings = [
+  { name = "QUIZ_ROOM_DO", class_name = "QuizRoomDurableObject" }
+]
 
 [[env.dev.d1_databases]]
 binding = "PARTY_DB"
@@ -32,3 +40,8 @@ database_id = "TODO_REPLACE_WITH_DEV_D1_ID"
 [pages]
 project_name = "party-pages"
 build_output_dir = ".vercel/output/static"
+
+[[pages.d1_databases]]
+binding = "PARTY_DB"
+database_name = "party-db"
+database_id = "48bb2355-5862-48e4-9cd8-cf616521610c"

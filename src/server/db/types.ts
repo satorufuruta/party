@@ -4,6 +4,7 @@ export interface UserRecord {
   id: string;
   name: string;
   display_name: string | null;
+  public_id: string;
   created_at: ISODateString;
   updated_at: ISODateString;
 }
@@ -23,6 +24,7 @@ export interface QuestionRecord {
   order_index: number;
   time_limit_sec: number;
   reveal_duration_sec: number;
+  pending_result_sec: number;
   created_at: ISODateString;
   updated_at: ISODateString;
 }

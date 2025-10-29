@@ -2,6 +2,7 @@ import type { DatabaseEnv } from "../../src/server/db";
 
 export interface Env extends DatabaseEnv {
   QUIZ_ROOM_DO: DurableObjectNamespace;
+  DEFAULT_SESSION_ID?: string;
 }
 
 export const json = (data: unknown, init: ResponseInit = {}): Response => {

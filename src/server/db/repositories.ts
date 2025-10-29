@@ -1,12 +1,33 @@
 import { D1Database } from "./client";
-import type {
-  AnswerRecord,
-  ChoiceRecord,
-  QuestionRecord,
-  QuizRecord,
-  SessionRecord,
-  UserRecord,
-} from "./types";
+import type { AnswerRecord, ChoiceRecord, QuestionRecord, QuizRecord, SessionRecord, UserRecord } from "./types";
+
+const generatePublicId = (): string => {
+  const createFromBytes = (bytes: Uint8Array): string => {
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0"));
+    return `${hex.slice(0, 4).join("")}-${hex.slice(4, 6).join("")}-${hex.slice(6, 8).join("")}-${hex
+      .slice(8, 10)
+      .join("")}-${hex.slice(10).join("")}`;
+  };
+
+  if (typeof globalThis.crypto !== "undefined") {
+    if (typeof globalThis.crypto.randomUUID === "function") {
+      return globalThis.crypto.randomUUID();
+    }
+    if (typeof globalThis.crypto.getRandomValues === "function") {
+      const bytes = new Uint8Array(16);
+      globalThis.crypto.getRandomValues(bytes);
+      return createFromBytes(bytes);
+    }
+  }
+
+  const fallback = new Uint8Array(16);
+  for (let index = 0; index < fallback.length; index += 1) {
+    fallback[index] = Math.floor(Math.random() * 256);
+  }
+  return createFromBytes(fallback);
+};
 
 export interface PaginationOptions {
   limit?: number;
@@ -16,15 +37,69 @@ export interface PaginationOptions {
 export class UserRepository {
   constructor(private readonly db: D1Database) {}
 
-  async upsert(user: Pick<UserRecord, "id" | "name" | "display_name">): Promise<void> {
+  async upsert(user: Pick<UserRecord, "id" | "name" | "display_name"> & { public_id?: string }): Promise<void> {
+    const publicId = user.public_id ?? generatePublicId();
     await this.db
       .prepare(
-        `INSERT INTO users (id, name, display_name)
-         VALUES (?, ?, ?)
+        `INSERT INTO users (id, name, display_name, public_id)
+         VALUES (?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET name = excluded.name, display_name = excluded.display_name`
       )
-      .bind(user.id, user.name, user.display_name)
+      .bind(user.id, user.name, user.display_name, publicId)
       .run();
+  }
+
+  async getById(id: string): Promise<UserRecord | null> {
+    return await this.db
+      .prepare(
+        `SELECT id, name, display_name, public_id, created_at, updated_at
+         FROM users
+         WHERE id = ?`
+      )
+      .bind(id)
+      .first<UserRecord>();
+  }
+
+  async list(): Promise<UserRecord[]> {
+    const stmt = this.db.prepare(
+      `SELECT id, name, display_name, public_id, created_at, updated_at
+       FROM users
+       ORDER BY created_at ASC`
+    );
+    const { results } = await stmt.all<UserRecord>();
+    return results;
+  }
+
+  async getByPublicId(publicId: string): Promise<UserRecord | null> {
+    return await this.db
+      .prepare(
+        `SELECT id, name, display_name, public_id, created_at, updated_at
+         FROM users
+         WHERE public_id = ?`
+      )
+      .bind(publicId)
+      .first<UserRecord>();
+  }
+
+  async findByNameParts(familyName: string, givenName: string): Promise<UserRecord | null> {
+    const last = familyName.trim();
+    const first = givenName.trim();
+    if (!last || !first) return null;
+
+    const displayWithSpace = `${last} ${first}`;
+    const displayWithoutSpace = `${last}${first}`;
+
+    return await this.db
+      .prepare(
+        `SELECT id, name, display_name, public_id, created_at, updated_at
+         FROM users
+         WHERE display_name IN (?, ?)
+            OR name IN (?, ?)
+         ORDER BY created_at ASC
+         LIMIT 1`
+      )
+      .bind(displayWithSpace, displayWithoutSpace, displayWithSpace, displayWithoutSpace)
+      .first<UserRecord>();
   }
 }
 
@@ -80,7 +155,7 @@ export class QuestionRepository {
   async listByQuiz(quizId: string): Promise<QuestionRecord[]> {
     const stmt = this.db
       .prepare(
-        `SELECT id, quiz_id, text, order_index, time_limit_sec, reveal_duration_sec, created_at, updated_at
+        `SELECT id, quiz_id, text, order_index, time_limit_sec, reveal_duration_sec, pending_result_sec, created_at, updated_at
          FROM questions
          WHERE quiz_id = ?
          ORDER BY order_index ASC`
@@ -106,8 +181,8 @@ export class QuestionRepository {
   async createQuestion(record: QuestionRecord, choices: ChoiceRecord[]): Promise<void> {
     await this.db
       .prepare(
-        `INSERT INTO questions (id, quiz_id, text, order_index, time_limit_sec, reveal_duration_sec, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO questions (id, quiz_id, text, order_index, time_limit_sec, reveal_duration_sec, pending_result_sec, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .bind(
         record.id,
@@ -116,6 +191,7 @@ export class QuestionRepository {
         record.order_index,
         record.time_limit_sec,
         record.reveal_duration_sec,
+        record.pending_result_sec,
         record.created_at,
         record.updated_at
       )
@@ -147,7 +223,12 @@ export class SessionRepository {
     await this.db
       .prepare(
         `INSERT INTO sessions (id, quiz_id, status, auto_progress, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           quiz_id = excluded.quiz_id,
+           status = excluded.status,
+           auto_progress = excluded.auto_progress,
+           updated_at = excluded.updated_at`
       )
       .bind(
         record.id,

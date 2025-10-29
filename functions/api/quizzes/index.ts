@@ -18,6 +18,7 @@ interface CreateQuestionInput {
   timeLimitSec: number;
   choices: CreateChoiceInput[];
   revealDurationSec?: number;
+  pendingResultSec?: number;
 }
 
 interface CreateQuizInput {
@@ -82,6 +83,7 @@ export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
         order_index: index,
         time_limit_sec: Math.max(0, questionInput.timeLimitSec ?? 0),
         reveal_duration_sec: Math.max(0, questionInput.revealDurationSec ?? 5),
+        pending_result_sec: Math.max(0, questionInput.pendingResultSec ?? 5),
         created_at: nowIso,
         updated_at: nowIso,
       };

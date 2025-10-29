@@ -3,10 +3,10 @@ import { useRouter } from "next/router";
 import {
   advanceSession,
   cancelSession,
-  fetchSessionResults,
   fetchSessionState,
+  fetchUsers,
   startSession,
-  type SessionResults,
+  type UserProfile,
 } from "../../lib/api";
 import { useQuizSession } from "../../hooks/useQuizSession";
 
@@ -15,8 +15,10 @@ export default function AdminSessionPage() {
   const { sessionId } = router.query as { sessionId?: string };
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [results, setResults] = useState<SessionResults | null>(null);
   const [skipIndex, setSkipIndex] = useState<string>("");
+  const [participants, setParticipants] = useState<UserProfile[]>([]);
+  const [participantsLoading, setParticipantsLoading] = useState(true);
+  const [participantsError, setParticipantsError] = useState<string | null>(null);
 
   const { state, sendAdminAction, requestSync, connected } = useQuizSession({
     sessionId: sessionId ?? "",
@@ -38,19 +40,103 @@ export default function AdminSessionPage() {
   }, [sessionId]);
 
   useEffect(() => {
-    if (!sessionId) return;
-    if (state.status === "finished") {
-      fetchSessionResults(sessionId)
-        .then(setResults)
-        .catch((err) => setError(err instanceof Error ? err.message : "結果の取得に失敗しました"));
-    }
-  }, [state.status, sessionId]);
+    const loadParticipants = async () => {
+      try {
+        const users = await fetchUsers();
+        setParticipants(users);
+        setParticipantsError(null);
+      } catch (err) {
+        setParticipantsError(err instanceof Error ? err.message : "参加者の取得に失敗しました");
+      } finally {
+        setParticipantsLoading(false);
+      }
+    };
+    loadParticipants();
+  }, []);
 
-  const participantLink = useMemo(() => {
-    if (typeof window === "undefined" || !sessionId) return "";
+  const participantLinks = useMemo(() => {
+    if (typeof window === "undefined") return [];
     const origin = window.location.origin;
-    return `${origin}/quiz/${sessionId}`;
-  }, [sessionId]);
+    return participants.map((participant) => ({
+      ...participant,
+      url: `${origin}/quiz/${participant.publicId}`,
+    }));
+  }, [participants]);
+
+  const participantNameMap = useMemo(() => {
+    const map = new Map<string, string>();
+    participants.forEach((participant) => map.set(participant.id, participant.displayName));
+    state.participants.forEach((participant) => map.set(participant.userId, participant.displayName));
+    return map;
+  }, [participants, state.participants]);
+
+  const currentScores = useMemo(() => {
+    const scoreMap = new Map<
+      string,
+      {
+        userId: string;
+        displayName: string;
+        score: number;
+      }
+    >();
+
+    participants.forEach((participant) => {
+      scoreMap.set(participant.id, {
+        userId: participant.id,
+        displayName: participant.displayName,
+        score: 0,
+      });
+    });
+
+    state.participants.forEach((participant) => {
+      const answers = Object.values(participant.answers ?? {});
+      const score = answers.reduce((total, answer) => (answer.isCorrect ? total + 1 : total), 0);
+      const displayName = participantNameMap.get(participant.userId) ?? participant.displayName ?? participant.userId;
+      scoreMap.set(participant.userId, {
+        userId: participant.userId,
+        displayName,
+        score,
+      });
+    });
+
+    return Array.from(scoreMap.values()).sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return a.displayName.localeCompare(b.displayName);
+    });
+  }, [participants, state.participants, participantNameMap]);
+
+  const statusLabel = useMemo(() => {
+    switch (state.status) {
+      case "question":
+        return "回答受付中";
+      case "answers_locked":
+        return "集計中";
+      case "reveal":
+        return "結果表示中";
+      case "finished":
+        return "終了";
+      case "lobby":
+        return "待機中";
+      default:
+        return state.status;
+    }
+  }, [state.status]);
+
+  const countdownLabel = useMemo(() => {
+    if (state.remainingSeconds === null) {
+      return null;
+    }
+    switch (state.status) {
+      case "question":
+        return `残り ${state.remainingSeconds} 秒`;
+      case "answers_locked":
+        return `結果まで ${state.remainingSeconds} 秒`;
+      case "reveal":
+        return `次の処理まで ${state.remainingSeconds} 秒`;
+      default:
+        return null;
+    }
+  }, [state.status, state.remainingSeconds]);
 
   if (!sessionId) {
     return <p className="p-6 text-sm text-slate-400">セッションIDが指定されていません。</p>;
@@ -74,7 +160,20 @@ export default function AdminSessionPage() {
         <div className="mx-auto flex max-w-6xl flex-col gap-2 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-xl font-semibold">Session {sessionId}</h1>
-            <p className="text-sm text-slate-400">状態: {state.status}</p>
+            <p className="text-sm text-slate-400">状態: {statusLabel}</p>
+            {countdownLabel && (
+              <p
+                className={
+                  state.status === "question"
+                    ? "text-xs text-emerald-300"
+                    : state.status === "answers_locked"
+                      ? "text-xs text-amber-300"
+                      : "text-xs text-sky-300"
+                }
+              >
+                {countdownLabel}
+              </p>
+            )}
           </div>
           <div className="flex items-center gap-3 text-sm text-slate-400">
             <span className={`h-2 w-2 rounded-full ${connected ? "bg-emerald-400" : "bg-red-400"}`} />
@@ -153,9 +252,17 @@ export default function AdminSessionPage() {
                   <div className="mt-3 space-y-3">
                     <div className="flex items-center gap-3 text-slate-300">
                       <span className="rounded bg-slate-800 px-2 py-1 text-xs uppercase">Q{state.questionIndex + 1}</span>
-                      {state.remainingMs !== null && (
-                        <span className="text-sm text-emerald-300">
-                          残り {(state.remainingMs / 1000).toFixed(1)} 秒
+                      {countdownLabel && (
+                        <span
+                          className={
+                            state.status === "question"
+                              ? "text-sm text-emerald-300"
+                              : state.status === "answers_locked"
+                                ? "text-sm text-amber-300"
+                                : "text-sm text-sky-300"
+                          }
+                        >
+                          {countdownLabel}
                         </span>
                       )}
                     </div>
@@ -168,6 +275,9 @@ export default function AdminSessionPage() {
                         </li>
                       ))}
                     </ul>
+                    {state.status === "answers_locked" && (
+                      <p className="text-sm text-slate-400">回答受付は終了し、集計中です。</p>
+                    )}
                   </div>
                 ) : (
                   <p className="mt-3 text-sm text-slate-400">まだ問題が開始されていません。</p>
@@ -176,38 +286,20 @@ export default function AdminSessionPage() {
 
               <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-4">
                 <h2 className="text-lg font-semibold">集計</h2>
-                {state.summary ? (
-                  <div className="mt-3 space-y-2 text-sm">
-                    {Object.entries(state.summary.totals).map(([choiceId, count]) => (
-                      <div key={choiceId} className="flex items-center justify-between">
-                        <span>{choiceId}</span>
-                        <span className="font-semibold">{count} 件</span>
-                      </div>
-                    ))}
-                    <p className="text-xs text-emerald-300">
-                      正解: {state.summary.correctChoiceIds.join(", ") || "未設定"}
-                    </p>
-                  </div>
-                ) : (
-                  <p className="mt-3 text-sm text-slate-400">集計はまだありません。</p>
-                )}
-              </div>
-
-              {results && (
-                <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-4">
-                  <h2 className="text-lg font-semibold">最終結果</h2>
+                {currentScores.length > 0 ? (
                   <ol className="mt-3 space-y-2 text-sm">
-                    {results.participants.map((participant, index) => (
+                    {currentScores.map((participant) => (
                       <li key={participant.userId} className="flex items-center justify-between">
-                        <span>
-                          #{index + 1} {participant.userId}
-                        </span>
+                        <span>{participant.displayName}</span>
                         <span className="font-semibold">{participant.score} 点</span>
                       </li>
                     ))}
                   </ol>
-                </div>
-              )}
+                ) : (
+                  <p className="mt-3 text-sm text-slate-400">まだ参加者がいません。</p>
+                )}
+              </div>
+
             </>
           )}
         </section>
@@ -215,8 +307,23 @@ export default function AdminSessionPage() {
         <aside className="space-y-4">
           <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-4 text-sm">
             <h2 className="text-base font-semibold">参加者用リンク</h2>
-            <p className="mt-2 break-all text-slate-300">{participantLink || "-"}</p>
-            <p className="mt-2 text-xs text-slate-500">リンク先で名前を入力すると参加できます。</p>
+            {participantsLoading ? (
+              <p className="mt-2 text-slate-400">読み込み中...</p>
+            ) : participantsError ? (
+              <p className="mt-2 text-red-300">{participantsError}</p>
+            ) : participantLinks.length === 0 ? (
+              <p className="mt-2 text-slate-400">登録された参加者がいません。</p>
+            ) : (
+              <ul className="mt-3 space-y-2">
+                {participantLinks.map((participant) => (
+                  <li key={participant.id} className="space-y-1 rounded border border-slate-800 bg-slate-950/50 p-3">
+                    <p className="text-slate-200">{participant.displayName}</p>
+                    <p className="break-all text-xs text-slate-400">{participant.url}</p>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="mt-2 text-xs text-slate-500">ユーザーごとに固有のリンクを配布してください。</p>
           </div>
 
           <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-4">

@@ -8,6 +8,8 @@ interface QuizWithQuestions extends QuizSummary {
   open?: boolean;
 }
 
+const DEFAULT_SESSION_ID = process.env.NEXT_PUBLIC_DEFAULT_SESSION_ID ?? "quiz1102";
+
 export default function AdminDashboard() {
   const router = useRouter();
   const [quizzes, setQuizzes] = useState<QuizWithQuestions[]>([]);
@@ -54,7 +56,7 @@ export default function AdminDashboard() {
     setCreating(quizId);
     setError(null);
     try {
-      const session = await createSession(quizId, { autoProgress });
+      const session = await createSession(quizId, { autoProgress, sessionId: DEFAULT_SESSION_ID });
       router.push(`/admin/${session.sessionId}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "セッションの作成に失敗しました");
@@ -78,6 +80,9 @@ export default function AdminDashboard() {
               />
               自動進行
             </label>
+            <span className="rounded border border-slate-700 px-2 py-1 text-xs text-slate-300">
+              セッションID: {DEFAULT_SESSION_ID}
+            </span>
           </div>
         </div>
       </header>
@@ -120,7 +125,8 @@ export default function AdminDashboard() {
                           <span className="font-medium">Q{index + 1}</span>
                           <span className="flex items-center gap-3 text-xs sm:text-sm">
                             <span>制限 {question.timeLimitSec} 秒</span>
-                            <span>待機 {question.revealDurationSec} 秒</span>
+                            <span>集計 {question.pendingResultSec} 秒</span>
+                            <span>発表 {question.revealDurationSec} 秒</span>
                           </span>
                         </div>
                         <p className="mt-2 text-slate-100">{question.text}</p>

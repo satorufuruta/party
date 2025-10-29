@@ -35,6 +35,7 @@ Cloudflare Functions (Workers) で提供する REST API の責務と入出力フ
       "text": "今年の社員旅行の行き先は?",
       "orderIndex": 0,
       "timeLimitSec": 20,
+      "pendingResultSec": 5,
       "revealDurationSec": 5,
       "choices": [
         { "text": "沖縄", "isCorrect": true },
@@ -44,7 +45,8 @@ Cloudflare Functions (Workers) で提供する REST API の責務と入出力フ
   ]
 }
 ```
-- `revealDurationSec` は回答締切後に結果を掲示する待機時間 (秒)。未指定時は既定値を適用する。
+- `pendingResultSec` は回答締切後に集計へ移るまでの待機時間 (秒)。
+- `revealDurationSec` は結果表示を続ける待機時間 (秒)。いずれも未指定時は既定値を適用する。
 - レスポンス `201 Created`:
 ```json
 {
@@ -57,7 +59,7 @@ Cloudflare Functions (Workers) で提供する REST API の責務と入出力フ
 
 ### 2.3 `GET /api/quizzes/:quizId`
 - 概要: クイズ詳細を取得 (編集/閲覧用)。
-- レスポンス例: questions/choices に加え `revealDurationSec` を含む。
+- レスポンス例: questions/choices に加え `pendingResultSec`, `revealDurationSec` を含む。
 
 ### 2.4 `PUT /api/quizzes/:quizId`
 - 概要: 既存クイズの編集。部分更新は `PATCH` で対応可。
@@ -100,10 +102,18 @@ Cloudflare Functions (Workers) で提供する REST API の責務と入出力フ
   "quizId": "quiz_1",
   "status": "question",
   "questionIndex": 1,
-  "deadline": "2024-12-05T12:34:56Z",
+  "questionDeadline": "2024-12-05T12:34:56Z",
+  "questionLockedAt": null,
+  "questionRevealAt": null,
+  "questionRevealEndsAt": null,
   "autoProgress": true,
   "participants": [
-    { "userId": "u1", "displayName": "Alice", "connected": true, "hasAnswered": true }
+    {
+      "userId": "u1",
+      "displayName": "Alice",
+      "connected": true,
+      "answers": { "q1": { "choiceId": "c1", "submittedAt": "2024-12-05T12:31:00Z", "isCorrect": true } }
+    }
   ]
 }
 ```

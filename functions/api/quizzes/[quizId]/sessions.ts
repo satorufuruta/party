@@ -12,6 +12,7 @@ import { SessionRepository, getDatabase } from "../../../../src/server/db";
 
 interface CreateSessionInput {
   autoProgress?: boolean;
+  sessionId?: string;
 }
 
 export const onRequest: PagesFunction<Env> = async ({ request, env, params }) => {
@@ -28,13 +29,14 @@ export const onRequest: PagesFunction<Env> = async ({ request, env, params }) =>
 
   const payload = await parseRequestBody<CreateSessionInput>(request);
   const autoProgress = payload?.autoProgress ?? true;
+  const requestedSessionId = payload?.sessionId?.trim() || env.DEFAULT_SESSION_ID || null;
 
-  logInfo(request, "Creating session", { quizId, autoProgress });
+  const sessionId = requestedSessionId ?? crypto.randomUUID();
+
+  logInfo(request, "Creating session", { quizId, autoProgress, sessionId, requestedSessionId });
 
   const db = getDatabase(env);
   const sessionRepo = new SessionRepository(db);
-
-  const sessionId = crypto.randomUUID();
   const nowIso = new Date().toISOString();
 
   await sessionRepo.create({

@@ -1,4 +1,4 @@
-export type SessionStatus = "idle" | "lobby" | "question" | "reveal" | "finished";
+export type SessionStatus = "idle" | "lobby" | "question" | "answers_locked" | "reveal" | "finished";
 
 export interface ParticipantAnswer {
   choiceId: string;
@@ -32,6 +32,9 @@ export interface SessionSnapshot {
   questionIndex: number;
   questionDeadline: number | null;
   questionStartedAt?: number | null;
+  questionLockedAt?: number | null;
+  questionRevealAt?: number | null;
+  questionRevealEndsAt?: number | null;
   autoProgress: boolean;
   participants: ParticipantState[];
 }
@@ -47,16 +50,22 @@ export type SocketEvent =
       question: QuestionPayload;
     }
   | {
-      type: "question_end";
+      type: "question_locked";
       sessionId: string;
       timestamp: number;
       questionIndex: number;
+      questionId: string;
+      lockedAt: number;
+      revealAt: number;
     }
   | {
-      type: "question_summary";
+      type: "question_reveal";
       sessionId: string;
       timestamp: number;
       questionIndex: number;
+      questionId: string;
+      revealAt: number;
+      revealEndsAt: number;
       totals: Record<string, number>;
       correctChoiceIds: string[];
     }
@@ -69,6 +78,15 @@ export type SocketEvent =
       correctChoiceId: string;
       choiceId: string;
       questionId: string;
+      userId: string;
+    }
+  | {
+      type: "answer_received";
+      sessionId: string;
+      timestamp: number;
+      questionIndex: number;
+      questionId: string;
+      choiceId: string;
       userId: string;
     }
   | {
@@ -91,9 +109,12 @@ export type SocketEvent =
       quizId: string;
       questionIndex: number;
       questionDeadline: number | null;
+      questionStartedAt: number | null;
+      questionLockedAt: number | null;
+      questionRevealAt: number | null;
+      questionRevealEndsAt: number | null;
       autoProgress: boolean;
       participants: ParticipantState[];
-      questionStartedAt: number | null;
       pendingResults: Record<
         string,
         {
@@ -107,6 +128,7 @@ export type SocketEvent =
         orderIndex: number;
         text: string;
         timeLimitSec: number;
+        pendingResultSec: number;
         revealDurationSec: number;
         choices: Array<{ id: string; text: string; isCorrect: boolean }>;
       }>;

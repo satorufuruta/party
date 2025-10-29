@@ -1,13 +1,24 @@
 -- D1 migration: initial schema for party quiz application
 PRAGMA foreign_keys = ON;
 
+DROP TABLE IF EXISTS users;
+DROP TABLE IF EXISTS quizzes;
+DROP TABLE IF EXISTS questions;
+DROP TABLE IF EXISTS choices;
+DROP TABLE IF EXISTS sessions;
+DROP TABLE IF EXISTS answers;
+
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   display_name TEXT,
+  public_id TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_public_id
+  ON users (public_id);
 
 CREATE TABLE IF NOT EXISTS quizzes (
   id TEXT PRIMARY KEY,
@@ -24,6 +35,7 @@ CREATE TABLE IF NOT EXISTS questions (
   order_index INTEGER NOT NULL,
   time_limit_sec INTEGER NOT NULL,
   reveal_duration_sec INTEGER NOT NULL DEFAULT 5,
+  pending_result_sec INTEGER NOT NULL DEFAULT 5,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   FOREIGN KEY (quiz_id) REFERENCES quizzes(id) ON DELETE CASCADE
