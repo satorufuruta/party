@@ -14,96 +14,11 @@ import { onRequest as quizIdentifyHandler } from "../functions/quiz/api/users/id
 
 interface Env extends DatabaseEnv {
   QUIZ_ROOM_DO: DurableObjectNamespace;
-  CORS_ALLOWED_ORIGINS?: string;
 }
-
-const DEFAULT_DEV_CORS_ORIGINS = new Set(["*"]);
-
-const parseAllowedOrigins = (env: Env): Set<string> => {
-  const raw = env.CORS_ALLOWED_ORIGINS;
-  if (!raw) {
-    return DEFAULT_DEV_CORS_ORIGINS;
-  }
-  return new Set(
-    raw
-      .split(",")
-      .map((origin) => origin.trim())
-      .filter((origin) => origin.length > 0)
-  );
-};
-
-const isSameOrigin = (request: Request, origin: string): boolean => new URL(request.url).origin === origin;
-
-const resolveAllowedOrigin = (request: Request, env: Env): string | null => {
-  const origin = request.headers.get("Origin");
-  if (!origin) {
-    return null;
-  }
-  const allowed = parseAllowedOrigins(env);
-  if (allowed.has("*")) {
-    return origin ?? "*";
-  }
-  if (isSameOrigin(request, origin) || allowed.has(origin)) {
-    return origin;
-  }
-  return null;
-};
-
-const createCorsResponse = (status: number, headers: Headers): Response =>
-  new Response(null, { status, headers });
-
-const handleCorsPreflight = (request: Request, env: Env): Response => {
-  const allowedOrigin = resolveAllowedOrigin(request, env);
-  if (!allowedOrigin) {
-    return new Response(null, { status: 400 });
-  }
-  const headers = new Headers();
-  headers.set("Access-Control-Allow-Origin", allowedOrigin);
-  if (allowedOrigin !== "*") {
-    headers.append("Vary", "Origin");
-    headers.set("Access-Control-Allow-Credentials", "true");
-  }
-  const requestMethod = request.headers.get("Access-Control-Request-Method") ?? "GET,POST,PUT,DELETE,OPTIONS";
-  headers.set("Access-Control-Allow-Methods", requestMethod);
-  const requestHeaders = request.headers.get("Access-Control-Request-Headers");
-  if (requestHeaders) {
-    headers.set("Access-Control-Allow-Headers", requestHeaders);
-  }
-  headers.set("Access-Control-Max-Age", "600");
-  return createCorsResponse(204, headers);
-};
-
-const applyCorsHeaders = (request: Request, env: Env, response: Response): Response => {
-  const allowedOrigin = resolveAllowedOrigin(request, env);
-  if (!allowedOrigin) {
-    return response;
-  }
-  const headers = new Headers(response.headers);
-  headers.set("Access-Control-Allow-Origin", allowedOrigin);
-  if (allowedOrigin !== "*") {
-    headers.append("Vary", "Origin");
-    headers.set("Access-Control-Allow-Credentials", "true");
-  }
-  return new Response(response.body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers,
-  });
-};
 
 const worker = {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-    const isQuizApiRequest = url.pathname.startsWith("/quiz/api/");
-    const isApiRequest = url.pathname.startsWith("/api/") || isQuizApiRequest;
-
-    if (isApiRequest && request.method === "OPTIONS") {
-      return handleCorsPreflight(request, env);
-    }
-    const origin = request.headers.get("Origin");
-    if (isApiRequest && origin && !resolveAllowedOrigin(request, env)) {
-      return new Response("CORS origin denied", { status: 403 });
-    }
 
     if (request.headers.get("Upgrade") === "websocket" && url.pathname.startsWith("/ws/sessions/")) {
       return handleSessionWebSocket(request, env);
@@ -112,21 +27,21 @@ const worker = {
     if (url.pathname.startsWith("/api/quizzes")) {
       const response = await handleQuizRoutes(request, env, url);
       if (response) {
-        return applyCorsHeaders(request, env, response);
+        return response;
       }
     }
 
     if (url.pathname.startsWith("/api/users")) {
       const response = await handleUserRoutes(request, env, url);
       if (response) {
-        return applyCorsHeaders(request, env, response);
+        return response;
       }
     }
 
     if (url.pathname.startsWith("/quiz/api/")) {
       const response = await handleParticipantApi(request, env, url);
       if (response) {
-        return applyCorsHeaders(request, env, response);
+        return response;
       }
     }
 
@@ -138,16 +53,14 @@ const worker = {
 
     if (url.pathname === "/healthz") {
       const response = new Response("ok", { status: 200 });
-      return isApiRequest ? applyCorsHeaders(request, env, response) : response;
+      return response;
     }
 
     if (url.pathname.startsWith("/api/sessions/")) {
-      const response = await handleSessionApi(request, env);
-      return applyCorsHeaders(request, env, response);
+      return await handleSessionApi(request, env);
     }
 
-    const notFound = new Response("Not Found", { status: 404 });
-    return isApiRequest ? applyCorsHeaders(request, env, notFound) : notFound;
+    return new Response("Not Found", { status: 404 });
   },
 };
 

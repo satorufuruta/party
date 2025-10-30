@@ -23,12 +23,10 @@ export interface QuizSocket {
 }
 
 const getWorkerBaseUrl = () => {
-  const configured =
-    process.env.NEXT_PUBLIC_WORKER_BASE_URL ?? process.env.NEXT_PUBLIC_API_BASE ?? "";
   if (typeof window === "undefined") {
-    return configured;
+    return "";
   }
-  return configured || window.location.origin;
+  return window.location.origin;
 };
 
 export const createQuizSocket = (options: QuizSocketOptions): QuizSocket | null => {

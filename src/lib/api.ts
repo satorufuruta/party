@@ -1,17 +1,5 @@
 import type { SessionSnapshot } from "./types";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE?.replace(/\/$/, "") ?? "";
-
-const resolveApiUrl = (path: string): string => {
-  if (/^https?:\/\//.test(path)) {
-    return path;
-  }
-  if (!API_BASE) {
-    return path;
-  }
-  return `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
-};
-
 export class ApiError extends Error {
   status: number;
   code?: string;
@@ -29,7 +17,7 @@ async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (typeof init.body === "string" && !headers.has("content-type")) {
     headers.set("content-type", "application/json");
   }
-  const response = await fetch(resolveApiUrl(path), {
+  const response = await fetch(path, {
     ...init,
     headers,
     credentials: init.credentials ?? "include",

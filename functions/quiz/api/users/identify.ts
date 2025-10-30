@@ -1,4 +1,4 @@
-import { buildQuizUserCookie } from "../../../_cookies";
+import { buildQuizUserCookie, clearQuizUserCookie } from "../../../_cookies";
 import { json, errorJson, type Env, logError, logInfo, parseRequestBody } from "../../../api/_lib";
 import { UserRepository, getDatabase } from "../../../../src/server/db";
 
@@ -37,6 +37,7 @@ export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
 
     logInfo(request, "Identified user by names", { userId: user.id, publicId: user.public_id });
     const response = json({ user });
+    response.headers.append("Set-Cookie", clearQuizUserCookie());
     response.headers.append("Set-Cookie", buildQuizUserCookie(user.public_id));
     response.headers.set("Cache-Control", "no-store");
     return response;

@@ -1,4 +1,5 @@
 # Party Quiz Application
+あと、クイズ画面UI, 問題のDBを正しく、ネットワーク負荷下げる、結果表示画面、回答秒数記録、/を/roomyにして/quizに流す、再接続確認
 
 Cloudflare プラットフォームに最適化したリアルタイムクイズアプリのフロントエンド/バックエンドを同一リポジトリで管理する。Next.js (Pages Router) をベースに UI を構築し、Cloudflare Workers・Durable Objects・D1 でリアルタイム制御とデータ永続化を行う。
 
@@ -10,10 +11,6 @@ npm install
 npm run dev
 ```
 `http://localhost:3000` で参加者/管理者 UI の開発を行う。
-
-Cloudflare Worker を別ポートで動かす場合は、Next.js 側の環境変数で API ベース URL を切り替えられる。
-`.env.local` に `NEXT_PUBLIC_API_BASE=http://127.0.0.1:8787` などを設定すると、フロントエンドが指定先の Worker へ API リクエストを送る。
-ローカルの Worker 側では `wrangler dev` の `.dev.vars` などに `CORS_ALLOWED_ORIGINS` を設定することで、必要に応じてアクセス元のオリジンを調整できる（未設定時はすべてのオリジンを許可）。
 
 ### Cloudflare Workers / Durable Objects
 ```bash

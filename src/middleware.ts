@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { getOptionalRequestContext } from "@cloudflare/next-on-pages";
-import { QUIZ_USER_COOKIE_NAME, QUIZ_USER_COOKIE_MAX_AGE_SEC, uuidPattern } from "../functions/_cookies";
+import { buildQuizUserCookie, clearQuizUserCookie, uuidPattern } from "../functions/_cookies";
 import { getDatabase, UserRepository, type DatabaseEnv } from "./server/db";
 
 export const config = {
@@ -13,15 +13,8 @@ const redirectToParticipantLanding = (request: NextRequest, status: 302 | 303, c
   const response = NextResponse.redirect(url, status);
   response.headers.set("Cache-Control", "no-store");
   if (cookieValue) {
-    response.cookies.set({
-      name: QUIZ_USER_COOKIE_NAME,
-      value: cookieValue,
-      path: "/quiz",
-      maxAge: QUIZ_USER_COOKIE_MAX_AGE_SEC,
-      httpOnly: true,
-      secure: true,
-      sameSite: "lax",
-    });
+    response.headers.append("Set-Cookie", clearQuizUserCookie());
+    response.headers.append("Set-Cookie", buildQuizUserCookie(cookieValue));
   }
   return response;
 };

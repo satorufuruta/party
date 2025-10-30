@@ -1,19 +1,22 @@
-import { buildQuizUserCookie, uuidPattern } from "../_cookies";
+import { buildQuizUserCookie, clearQuizUserCookie, uuidPattern } from "../_cookies";
 import { type Env, logError, logInfo } from "../api/_lib";
 import { UserRepository, getDatabase } from "../../src/server/db";
 
 const redirectResponse = (
   request: Request,
   status: number,
-  cookie?: string
+  cookies?: string | string[]
 ): Response => {
   const url = new URL(request.url);
   const headers = new Headers({
     Location: `${url.origin}/quiz`,
     "Cache-Control": "no-store",
   });
-  if (cookie) {
-    headers.append("Set-Cookie", cookie);
+  if (cookies) {
+    const values = Array.isArray(cookies) ? cookies : [cookies];
+    for (const cookie of values) {
+      headers.append("Set-Cookie", cookie);
+    }
   }
   return new Response(null, { status, headers });
 };
@@ -44,7 +47,10 @@ export const onRequest: PagesFunction<Env> = async ({ request, env, params }) =>
       userId: user.id,
       publicId,
     });
-    return redirectResponse(request, 303, buildQuizUserCookie(user.public_id));
+    return redirectResponse(request, 303, [
+      clearQuizUserCookie(),
+      buildQuizUserCookie(user.public_id),
+    ]);
   } catch (error) {
     logError(request, "Failed to resolve publicId", {
       publicId,
