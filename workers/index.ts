@@ -278,6 +278,7 @@ interface SubmitAnswerMessage {
 interface HeartbeatMessage {
   type: "heartbeat";
   lastEventId?: string;
+  stateSignature?: string;
 }
 
 interface AdminControlMessage {
@@ -749,7 +750,7 @@ export class QuizRoomDurableObject {
         await this.handleSubmitAnswer(context, message);
         break;
       case "heartbeat":
-        this.handleHeartbeat(context);
+        this.handleHeartbeat(context, message);
         break;
       case "admin_control":
         await this.handleAdminControl(context, message);
@@ -821,7 +822,18 @@ export class QuizRoomDurableObject {
       sessionId: this.snapshot.sessionId,
     });
 
-    const participants = Object.values(this.snapshot.participants);
+    const allParticipants = Object.values(this.snapshot.participants);
+    const isParticipantClient = context.role === "participant" && Boolean(context.userId);
+    const participants = isParticipantClient
+      ? allParticipants.filter((participant) => participant.userId === context.userId)
+      : allParticipants;
+
+    if (isParticipantClient && participants.length === 0 && context.userId) {
+      const participant = this.snapshot.participants[context.userId];
+      if (participant) {
+        participants.push(participant);
+      }
+    }
     const payload: SessionReadyPayload = {
       status: this.snapshot.status,
       quizId: this.snapshot.quizId,
@@ -913,6 +925,77 @@ export class QuizRoomDurableObject {
     }
   }
 
+  private serializeParticipantAnswersForSignature(
+    answers: Record<string, ParticipantAnswerSnapshot> | undefined
+  ): Array<[string, string, number, number | null]> {
+    if (!answers) {
+      return [];
+    }
+    return Object.entries(answers)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([questionId, answer]) => [
+        questionId,
+        answer.choiceId,
+        answer.submittedAt,
+        answer.isCorrect === undefined ? null : answer.isCorrect ? 1 : 0,
+      ]);
+  }
+
+  private participantSignatureForClient(participant: ParticipantStateSnapshot | undefined): string {
+    if (!participant) {
+      return "missing";
+    }
+    return JSON.stringify([
+      participant.userId,
+      participant.connected ? 1 : 0,
+      this.serializeParticipantAnswersForSignature(participant.answers),
+    ]);
+  }
+
+  private adminParticipantsSignature(): string {
+    return Object.values(this.snapshot.participants)
+      .map((participant) => this.participantSignatureForClient(participant))
+      .sort()
+      .join("|");
+  }
+
+  private pendingResultsSignature(): string {
+    return Object.entries(this.snapshot.pendingResults)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([questionId, summary]) =>
+        JSON.stringify([
+          questionId,
+          Object.entries(summary.totals)
+            .sort(([left], [right]) => left.localeCompare(right)),
+          [...summary.correctChoiceIds].sort(),
+        ])
+      )
+      .join("|");
+  }
+
+  private computeClientStateSignature(context: ConnectionContext): string {
+    const base: Array<string | number | boolean | null> = [
+      context.role ?? "guest",
+      this.snapshot.status,
+      this.snapshot.questionIndex,
+      this.snapshot.questionDeadline ?? null,
+      this.snapshot.questionStartedAt ?? null,
+      this.snapshot.questionLockedAt ?? null,
+      this.snapshot.questionRevealAt ?? null,
+      this.snapshot.questionRevealEndsAt ?? null,
+      this.snapshot.autoProgress,
+    ];
+
+    if (context.role === "participant" && context.userId) {
+      base.push(this.participantSignatureForClient(this.snapshot.participants[context.userId]));
+    } else if (context.role === "admin") {
+      base.push(this.adminParticipantsSignature());
+      base.push(this.pendingResultsSignature());
+    }
+
+    return JSON.stringify(base);
+  }
+
   private async handleSubmitAnswer(context: ConnectionContext, message: SubmitAnswerMessage): Promise<void> {
     if (context.role !== "participant" || !context.userId) {
       this.sendError(context, "not_authorized", "Submit answer allowed for participants only");
@@ -999,15 +1082,33 @@ export class QuizRoomDurableObject {
     });
   }
 
-  private handleHeartbeat(context: ConnectionContext): void {
-    if (!context.userId) {
+  private handleHeartbeat(context: ConnectionContext, message: HeartbeatMessage): void {
+    if (context.userId) {
+      const participant = this.snapshot.participants[context.userId];
+      if (participant) {
+        participant.lastSeen = now();
+      }
+    }
+
+    const serverSignature = this.computeClientStateSignature(context);
+    if (message.stateSignature && message.stateSignature === serverSignature) {
+      this.send(context, {
+        type: "sync_ack",
+        sessionId: this.snapshot.sessionId,
+        timestamp: now(),
+        stateSignature: serverSignature,
+      });
       return;
     }
-    const participant = this.snapshot.participants[context.userId];
-    if (!participant) {
-      return;
-    }
-    participant.lastSeen = now();
+
+    this.handleSyncRequest(context);
+    const updatedSignature = this.computeClientStateSignature(context);
+    this.send(context, {
+      type: "sync_ack",
+      sessionId: this.snapshot.sessionId,
+      timestamp: now(),
+      stateSignature: updatedSignature,
+    });
   }
 
   private async handleAdminControl(context: ConnectionContext, message: AdminControlMessage): Promise<void> {

@@ -18,6 +18,7 @@ export interface QuizSocket {
   submitAnswer: (questionId: string, choiceId: string) => void;
   requestSync: () => void;
   sendAdminAction: (action: string, payload?: Record<string, unknown>) => void;
+  sendHeartbeat: (stateSignature?: string) => void;
   close: () => void;
   isConnected: () => boolean;
 }
@@ -65,7 +66,6 @@ export const createQuizSocket = (options: QuizSocketOptions): QuizSocket | null 
         participantKey: options.participantKey,
       };
       socket.send(JSON.stringify(joinPayload));
-      socket.send(JSON.stringify({ type: "request_sync" }));
     });
 
     socket.addEventListener("message", (event) => {
@@ -108,6 +108,13 @@ export const createQuizSocket = (options: QuizSocketOptions): QuizSocket | null 
     },
     requestSync: () => {
       send({ type: "request_sync" });
+    },
+    sendHeartbeat: (stateSignature) => {
+      const payload: Record<string, unknown> = { type: "heartbeat" };
+      if (stateSignature) {
+        payload.stateSignature = stateSignature;
+      }
+      send(payload);
     },
     sendAdminAction: (action, payload = {}) => {
       send({ type: "admin_control", action, ...payload });

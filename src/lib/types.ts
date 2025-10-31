@@ -95,6 +95,12 @@ export type SocketEvent =
       timestamp: number;
     }
   | {
+      type: "sync_ack";
+      sessionId: string;
+      timestamp: number;
+      stateSignature?: string;
+    }
+  | {
       type: "error";
       sessionId: string;
       timestamp: number;

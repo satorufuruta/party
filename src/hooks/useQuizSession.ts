@@ -232,9 +232,71 @@ const reducer = (state: SessionState, action: Action): SessionState => {
         participants: event.participants,
         adminSnapshot: event,
       };
+    case "sync_ack":
+      return state;
     default:
       return state;
   }
+};
+
+const serializeParticipantAnswers = (answers: ParticipantState["answers"] | undefined): Array<[string, string, number, number | null]> => {
+  if (!answers) return [];
+  return Object.entries(answers)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([questionId, answer]) => [
+      questionId,
+      answer.choiceId,
+      answer.submittedAt,
+      answer.isCorrect === undefined ? null : answer.isCorrect ? 1 : 0,
+    ]);
+};
+
+const participantStateSignature = (participant: ParticipantState | undefined): string => {
+  if (!participant) {
+    return "missing";
+  }
+  return JSON.stringify([
+    participant.userId,
+    participant.connected ? 1 : 0,
+    serializeParticipantAnswers(participant.answers),
+  ]);
+};
+
+const summarySignature = (
+  summary: SessionState["summary"]
+): string => {
+  if (!summary) return "";
+  const totals = Object.entries(summary.totals)
+    .sort(([a], [b]) => a.localeCompare(b));
+  const correct = [...summary.correctChoiceIds].sort();
+  return JSON.stringify([totals, correct]);
+};
+
+const buildStateSignature = (role: ClientRole, state: SessionState, userId?: string): string => {
+  const parts: Array<string | number | null | boolean> = [
+    role,
+    state.status,
+    state.questionIndex,
+    state.questionDeadline ?? null,
+    state.questionStartedAt ?? null,
+    state.questionLockedAt ?? null,
+    state.questionRevealAt ?? null,
+    state.questionRevealEndsAt ?? null,
+    state.autoProgress,
+  ];
+
+  if (role === "participant") {
+    parts.push(participantStateSignature(userId ? state.participants.find((participant) => participant.userId === userId) : undefined));
+  } else if (role === "admin") {
+    const participantsDigest = state.participants
+      .map(participantStateSignature)
+      .sort()
+      .join("|");
+    parts.push(participantsDigest);
+    parts.push(summarySignature(state.summary ?? null));
+  }
+
+  return JSON.stringify(parts);
 };
 
 export interface UseQuizSessionOptions {
@@ -251,7 +313,8 @@ export const useQuizSession = (options: UseQuizSessionOptions) => {
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
   const socketRef = useRef<QuizSocket | null>(null);
-  const lastHeartbeat = useRef<number>(Date.now());
+  const lastEventAtRef = useRef<number>(Date.now());
+  const lastHeartbeatSentAtRef = useRef<number>(0);
   const { sessionId, role, userId, displayName, participantKey } = options;
 
   useEffect(() => {
@@ -276,15 +339,18 @@ export const useQuizSession = (options: UseQuizSessionOptions) => {
       onOpen: () => {
         setConnected(true);
         setError(null);
+        lastEventAtRef.current = Date.now();
+        lastHeartbeatSentAtRef.current = 0;
       },
       onClose: () => {
         setConnected(false);
+        lastHeartbeatSentAtRef.current = 0;
       },
       onError: () => {
         setError("リアルタイム接続で問題が発生しました");
       },
       onEvent: (event) => {
-        lastHeartbeat.current = Date.now();
+        lastEventAtRef.current = Date.now();
         dispatch({ type: "event", payload: event });
       },
     });
@@ -320,12 +386,25 @@ export const useQuizSession = (options: UseQuizSessionOptions) => {
     return () => clearInterval(interval);
   }, [state.status, state.questionDeadline, state.questionRevealAt, state.questionRevealEndsAt]);
 
+  const stateSignature = useMemo(() => buildStateSignature(role, state, userId), [role, state, userId]);
+  const stateSignatureRef = useRef(stateSignature);
+  useEffect(() => {
+    stateSignatureRef.current = stateSignature;
+  }, [stateSignature]);
+
   useEffect(() => {
     const interval = setInterval(() => {
-      if (!socketRef.current) return;
-      if (Date.now() - lastHeartbeat.current > 15000) {
-        socketRef.current.requestSync();
+      const socket = socketRef.current;
+      if (!socket) return;
+      const nowTs = Date.now();
+      if (nowTs - lastEventAtRef.current <= 15000) {
+        return;
       }
+      if (nowTs - lastHeartbeatSentAtRef.current < 5000) {
+        return;
+      }
+      socket.sendHeartbeat(stateSignatureRef.current);
+      lastHeartbeatSentAtRef.current = nowTs;
     }, 5000);
     return () => clearInterval(interval);
   }, []);
