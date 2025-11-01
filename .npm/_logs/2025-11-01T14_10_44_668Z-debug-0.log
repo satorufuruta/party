@@ -1,0 +1,17 @@
+0 verbose cli /opt/homebrew/Cellar/node/23.1.0_1/bin/node /opt/homebrew/lib/node_modules/npm/bin/npm-cli.js
+1 info using npm@10.9.0
+2 info using node@v23.1.0
+3 silly config load:file:/opt/homebrew/lib/node_modules/npm/npmrc
+4 silly config load:file:/Users/furutasatoru/party/.npmrc
+5 silly config load:file:/opt/homebrew/etc/npmrc
+6 verbose title npm exec wrangler dev --local --port 8797 --inspector-port 0
+7 verbose argv "exec" "--" "wrangler" "dev" "--local" "--port" "8797" "--inspector-port" "0"
+8 verbose logfile logs-max:10 dir:/Users/furutasatoru/party/.npm/_logs/2025-11-01T14_10_44_668Z-
+9 verbose logfile /Users/furutasatoru/party/.npm/_logs/2025-11-01T14_10_44_668Z-debug-0.log
+10 silly logfile done cleaning log files
+11 verbose cwd /Users/furutasatoru/party
+12 verbose os Darwin 25.0.0
+13 verbose node v23.1.0
+14 verbose npm  v10.9.0
+15 verbose exit 1
+16 verbose code 1

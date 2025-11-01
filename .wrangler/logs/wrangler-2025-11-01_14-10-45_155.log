@@ -1,0 +1,58 @@
+
+--- 2025-11-01T14:10:45.266Z debug
+🪵  Writing logs to "/Users/furutasatoru/party/.wrangler/logs/wrangler-2025-11-01_14-10-45_155.log"
+---
+
+--- 2025-11-01T14:10:45.266Z debug
+Metrics dispatcher: Posting data {"deviceId":"3a3fb504-fbeb-49cf-a2f8-9c136cc3b04c","event":"wrangler command started","timestamp":1762006245266,"properties":{"amplitude_session_id":1762006245265,"amplitude_event_id":0,"wranglerVersion":"4.42.1","osPlatform":"Mac OS","osVersion":"Darwin Kernel Version 25.0.0: Wed Sep 17 21:41:45 PDT 2025; root:xnu-12377.1.9~141/RELEASE_ARM64_T6000","nodeVersion":23,"packageManager":"npm","isFirstUsage":false,"configFileType":"toml","isCI":false,"isPagesCI":false,"isWorkersCI":false,"isInteractive":false,"hasAssets":false,"argsUsed":["inspectorPort","l","local","port"],"argsCombination":"inspectorPort, l, local, port","command":"wrangler dev","args":{"local":true,"l":true,"port":8797,"inspectorPort":0,"xRemoteBindings":true,"latest":true,"noBundle":false,"remote":false,"r":false,"testScheduled":false,"xVectorizeBindToProd":false,"xImagesLocalMode":false}}}
+---
+
+--- 2025-11-01T14:10:45.271Z debug
+.env file not found at "/Users/furutasatoru/party/.env". Continuing... For more details, refer to https://developers.cloudflare.com/workers/wrangler/system-environment-variables/
+---
+
+--- 2025-11-01T14:10:45.288Z log
+
+ ⛅️ wrangler 4.42.1 (update available 4.45.3)
+─────────────────────────────────────────────
+---
+
+--- 2025-11-01T14:10:45.295Z debug
+setting config
+---
+
+--- 2025-11-01T14:10:45.295Z debug
+Updating config... undefined undefined
+---
+
+--- 2025-11-01T14:10:45.327Z warn
+▲ [WARNING] Processing wrangler.toml configuration:
+
+    - Unexpected fields found in top-level field: "usage_model","pages"
+
+
+---
+
+--- 2025-11-01T14:10:45.332Z debug
+Metrics dispatcher: Failed to send request: fetch failed
+---
+
+--- 2025-11-01T14:10:45.339Z debug
+local dev variables file not found at ".dev.vars". Continuing... For more details, refer to https://developers.cloudflare.com/workers/wrangler/system-environment-variables/
+---
+
+--- 2025-11-01T14:10:45.339Z debug
+.env file not found at "/Users/furutasatoru/party/.env". Continuing... For more details, refer to https://developers.cloudflare.com/workers/wrangler/system-environment-variables/
+---
+
+--- 2025-11-01T14:10:45.339Z log
+Using vars defined in .env.local
+---
+
+--- 2025-11-01T14:10:45.340Z log
+Your Worker has access to the following bindings:
+---
+
+--- 2025-11-01T14:10:45.340Z log
+Binding                                                         Resource                  Mode
+---

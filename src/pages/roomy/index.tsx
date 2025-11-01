@@ -57,7 +57,7 @@ export default function AdminDashboard() {
     setError(null);
     try {
       const session = await createSession(quizId, { autoProgress, sessionId: DEFAULT_SESSION_ID });
-      router.push(`/admin/${session.sessionId}`);
+      router.push(`/roomy/${session.sessionId}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "セッションの作成に失敗しました");
     } finally {
