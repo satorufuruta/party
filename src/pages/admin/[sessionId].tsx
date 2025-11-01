@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import {
   advanceSession,
@@ -19,6 +19,8 @@ export default function AdminSessionPage() {
   const [participants, setParticipants] = useState<UserProfile[]>([]);
   const [participantsLoading, setParticipantsLoading] = useState(true);
   const [participantsError, setParticipantsError] = useState<string | null>(null);
+  const [rankingOpen, setRankingOpen] = useState(false);
+  const [revealedCount, setRevealedCount] = useState(0);
 
   const { state, sendAdminAction, requestSync, connected } = useQuizSession({
     sessionId: sessionId ?? "",
@@ -70,6 +72,17 @@ export default function AdminSessionPage() {
     return map;
   }, [participants, state.participants]);
 
+  const formatElapsedSeconds = useCallback((ms?: number) => {
+    if (typeof ms !== "number" || !Number.isFinite(ms)) {
+      return "-";
+    }
+    const seconds = Math.max(0, ms) / 1000;
+    if (seconds >= 10) {
+      return `${seconds.toFixed(1)} 秒`;
+    }
+    return `${seconds.toFixed(2)} 秒`;
+  }, []);
+
   const currentScores = useMemo(() => {
     const scoreMap = new Map<
       string,
@@ -77,6 +90,7 @@ export default function AdminSessionPage() {
         userId: string;
         displayName: string;
         score: number;
+        totalElapsedMs: number;
       }
     >();
 
@@ -85,22 +99,36 @@ export default function AdminSessionPage() {
         userId: participant.id,
         displayName: participant.displayName,
         score: 0,
+        totalElapsedMs: 0,
       });
     });
 
     state.participants.forEach((participant) => {
       const answers = Object.values(participant.answers ?? {});
-      const score = answers.reduce((total, answer) => (answer.isCorrect ? total + 1 : total), 0);
+      const score =
+        typeof participant.score === "number"
+          ? participant.score
+          : answers.reduce((total, answer) => (answer?.isCorrect ? total + 1 : total), 0);
+      const totalElapsedMs =
+        typeof participant.totalElapsedMs === "number"
+          ? participant.totalElapsedMs
+          : answers.reduce(
+              (total, answer) =>
+                total + (answer && typeof answer.elapsedMs === "number" && answer.elapsedMs >= 0 ? answer.elapsedMs : 0),
+              0
+            );
       const displayName = participantNameMap.get(participant.userId) ?? participant.displayName ?? participant.userId;
       scoreMap.set(participant.userId, {
         userId: participant.userId,
         displayName,
         score,
+        totalElapsedMs,
       });
     });
 
     return Array.from(scoreMap.values()).sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
+      if (a.totalElapsedMs !== b.totalElapsedMs) return a.totalElapsedMs - b.totalElapsedMs;
       return a.displayName.localeCompare(b.displayName);
     });
   }, [participants, state.participants, participantNameMap]);
@@ -137,6 +165,70 @@ export default function AdminSessionPage() {
         return null;
     }
   }, [state.status, state.remainingSeconds]);
+
+  const topThree = useMemo(() => currentScores.slice(0, 3), [currentScores]);
+
+  const rankedParticipants = useMemo(() => {
+    const rankLabels = ["第1位", "第2位", "第3位"];
+    const base = topThree.map((participant, index) => ({
+      label: rankLabels[index] ?? `第${index + 1}位`,
+      participant,
+      rank: index + 1,
+    }));
+    const revealOrder = [...base].sort((a, b) => b.rank - a.rank);
+    const revealStepMap = new Map<number, number>();
+    revealOrder.forEach((entry, index) => {
+      revealStepMap.set(entry.rank, index + 1);
+    });
+    return base.map((entry) => ({
+      ...entry,
+      revealStep: revealStepMap.get(entry.rank) ?? base.length,
+    }));
+  }, [topThree]);
+
+  const openRanking = useCallback(() => {
+    setRankingOpen(true);
+    setRevealedCount(0);
+    if (typeof document !== "undefined" && typeof document.documentElement.requestFullscreen === "function") {
+      document.documentElement.requestFullscreen().catch(() => {
+        // Ignore fullscreen failures (e.g. unsupported browser)
+      });
+    }
+  }, []);
+
+  const closeRanking = useCallback(() => {
+    setRankingOpen(false);
+    if (typeof document !== "undefined" && document.fullscreenElement && typeof document.exitFullscreen === "function") {
+      document.exitFullscreen().catch(() => {
+        // Ignore exit failures
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!rankingOpen) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        setRevealedCount((prev) => {
+          const limit = rankedParticipants.length;
+          return prev >= limit ? limit : prev + 1;
+        });
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeRanking();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [rankingOpen, rankedParticipants.length, closeRanking]);
+
+  const allRevealed = rankedParticipants.length > 0 && revealedCount >= rankedParticipants.length;
 
   if (!sessionId) {
     return <p className="p-6 text-sm text-slate-400">セッションIDが指定されていません。</p>;
@@ -285,13 +377,23 @@ export default function AdminSessionPage() {
               </div>
 
               <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-4">
-                <h2 className="text-lg font-semibold">集計</h2>
+                <button
+                  type="button"
+                  onClick={openRanking}
+                  className="flex w-full items-center justify-between gap-4 rounded border border-transparent bg-slate-900/30 px-3 py-2 text-left transition hover:border-slate-600 hover:bg-slate-900/60 focus:outline-none focus:ring-2 focus:ring-slate-500"
+                >
+                  <span className="text-lg font-semibold text-slate-100">集計</span>
+                  <span className="text-xs text-slate-400">Enterでトップ3を順次表示</span>
+                </button>
                 {currentScores.length > 0 ? (
                   <ol className="mt-3 space-y-2 text-sm">
                     {currentScores.map((participant) => (
                       <li key={participant.userId} className="flex items-center justify-between">
                         <span>{participant.displayName}</span>
-                        <span className="font-semibold">{participant.score} 点</span>
+                        <div className="text-right">
+                          <span className="block font-semibold">{participant.score} 点</span>
+                          <span className="block text-xs text-slate-400">合計 {formatElapsedSeconds(participant.totalElapsedMs)}</span>
+                        </div>
                       </li>
                     ))}
                   </ol>
@@ -347,6 +449,59 @@ export default function AdminSessionPage() {
           </div>
         </aside>
       </main>
+
+      {rankingOpen && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-100">
+          <div className="flex items-center justify-between px-6 py-4">
+            <p className="text-sm text-slate-400">Enter で順位を進める / Esc で閉じる</p>
+            <button
+              type="button"
+              onClick={closeRanking}
+              className="rounded border border-slate-700 px-3 py-1 text-xs font-medium text-slate-200 transition hover:border-slate-500 hover:bg-slate-800/80"
+            >
+              閉じる
+            </button>
+          </div>
+
+          <div className="flex flex-1 flex-col items-center justify-center gap-12 px-6 text-center">
+            {rankedParticipants.length === 0 ? (
+              <p className="text-xl text-slate-400">表示できる参加者がいません。</p>
+            ) : (
+              <div className="flex flex-col items-center gap-10">
+                {rankedParticipants.map((entry) => {
+                  const isVisible = revealedCount >= entry.revealStep;
+                  if (!isVisible) {
+                    return null;
+                  }
+
+                  const accentColor = entry.rank === 1 ? "text-amber-300" : entry.rank === 2 ? "text-slate-100" : "text-slate-300";
+                  return (
+                    <div
+                      key={entry.rank}
+                      className="max-w-3xl rounded-xl border border-slate-800 bg-slate-950/60 px-10 py-8 shadow-xl"
+                    >
+                      <p className="text-sm uppercase tracking-[0.4em] text-slate-500">{entry.label}</p>
+                      <p className={`mt-3 text-6xl font-bold ${accentColor}`}>{entry.participant.displayName}</p>
+                      <p className="mt-4 text-2xl font-semibold text-emerald-300">{entry.participant.score} 点</p>
+                      <p className="mt-1 text-sm text-slate-400">回答所要時間合計 {formatElapsedSeconds(entry.participant.totalElapsedMs)}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <p className="text-sm text-slate-400">
+              {rankedParticipants.length === 0
+                ? "Escキーで終了"
+                : allRevealed
+                  ? "Escキーで終了"
+                  : revealedCount === 0
+                    ? "Enterキーで発表を開始"
+                    : "Enterキーで次の順位を表示"}
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

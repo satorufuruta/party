@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { createQuizSocket, type QuizSocket } from "../lib/realtime";
-import type { SocketEvent, QuestionPayload, SessionStatus, ParticipantState, ClientRole } from "../lib/types";
+import type { SocketEvent, QuestionPayload, SessionStatus, ParticipantState, ParticipantAnswer, ClientRole } from "../lib/types";
 
 interface SessionState {
   sessionId: string;
@@ -28,6 +28,45 @@ interface Action {
   type: "reset" | "event";
   payload?: SocketEvent;
 }
+
+const sanitizeElapsed = (value: number | undefined): number => {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    return 0;
+  }
+  return Math.floor(value);
+};
+
+const computeParticipantTotals = (answers: Record<string, ParticipantAnswer>): { score: number; totalElapsedMs: number } => {
+  let score = 0;
+  let totalElapsedMs = 0;
+  for (const answer of Object.values(answers)) {
+    if (!answer) continue;
+    const elapsedMs = sanitizeElapsed(answer.elapsedMs);
+    if (answer.isCorrect) {
+      score += 1;
+    }
+    totalElapsedMs += elapsedMs;
+  }
+  return { score, totalElapsedMs };
+};
+
+const normalizeParticipant = (participant: ParticipantState): ParticipantState => {
+  const answers: Record<string, ParticipantAnswer> = {};
+  for (const [questionId, answer] of Object.entries(participant.answers ?? {})) {
+    if (!answer) continue;
+    answers[questionId] = {
+      ...answer,
+      elapsedMs: sanitizeElapsed(answer.elapsedMs),
+    };
+  }
+  const totals = computeParticipantTotals(answers);
+  return {
+    ...participant,
+    answers,
+    score: participant.score ?? totals.score,
+    totalElapsedMs: participant.totalElapsedMs ?? totals.totalElapsedMs,
+  };
+};
 
 const initialState: SessionState = {
   sessionId: "",
@@ -68,7 +107,7 @@ const reducer = (state: SessionState, action: Action): SessionState => {
         questionRevealAt: event.questionRevealAt ?? null,
         questionRevealEndsAt: event.questionRevealEndsAt ?? null,
         autoProgress: event.autoProgress,
-        participants: event.participants,
+        participants: event.participants.map(normalizeParticipant),
         summary: null,
         lastAnswerAck: null,
         lastAnswer: null,
@@ -117,18 +156,23 @@ const reducer = (state: SessionState, action: Action): SessionState => {
         }
         found = true;
         const previous = participant.answers[event.questionId];
+        const elapsedMs = sanitizeElapsed(event.elapsedMs ?? previous?.elapsedMs);
         const answers = {
           ...participant.answers,
           [event.questionId]: {
             choiceId: event.choiceId,
             submittedAt: event.timestamp,
             isCorrect: previous?.isCorrect,
+            elapsedMs,
           },
         };
+        const totals = computeParticipantTotals(answers);
         return {
           ...participant,
           answers,
           lastSeen: event.timestamp,
+          score: totals.score,
+          totalElapsedMs: totals.totalElapsedMs,
         };
       });
 
@@ -136,19 +180,27 @@ const reducer = (state: SessionState, action: Action): SessionState => {
         ? participants
         : [
             ...participants,
-            {
-              userId: event.userId,
-              displayName: event.userId,
-              connected: true,
-              lastSeen: event.timestamp,
-              answers: {
+            (() => {
+              const elapsedMs = sanitizeElapsed(event.elapsedMs);
+              const answers: Record<string, ParticipantAnswer> = {
                 [event.questionId]: {
                   choiceId: event.choiceId,
                   submittedAt: event.timestamp,
                   isCorrect: undefined,
+                  elapsedMs,
                 },
-              },
-            },
+              };
+              const totals = computeParticipantTotals(answers);
+              return {
+                userId: event.userId,
+                displayName: event.userId,
+                connected: true,
+                lastSeen: event.timestamp,
+                answers,
+                score: totals.score,
+                totalElapsedMs: totals.totalElapsedMs,
+              };
+            })(),
           ];
 
       return {
@@ -165,18 +217,25 @@ const reducer = (state: SessionState, action: Action): SessionState => {
             return participant;
           }
           found = true;
+          const previous = participant.answers[event.questionId];
+          const elapsedMs = sanitizeElapsed(previous?.elapsedMs ?? event.elapsedMs);
+          const submittedAt = previous?.submittedAt ?? event.timestamp;
           const answers = {
             ...participant.answers,
             [event.questionId]: {
               choiceId: event.choiceId,
-              submittedAt: event.timestamp,
+              submittedAt,
               isCorrect: event.isCorrect,
+              elapsedMs,
             },
           };
+          const totals = computeParticipantTotals(answers);
           return {
             ...participant,
             answers,
             lastSeen: event.timestamp,
+            score: totals.score,
+            totalElapsedMs: totals.totalElapsedMs,
           };
         });
 
@@ -184,19 +243,27 @@ const reducer = (state: SessionState, action: Action): SessionState => {
           ? participants
           : [
               ...participants,
-              {
-                userId: event.userId,
-                displayName: event.userId,
-                connected: true,
-                lastSeen: event.timestamp,
-                answers: {
+              (() => {
+                const elapsedMs = sanitizeElapsed(event.elapsedMs);
+                const answers: Record<string, ParticipantAnswer> = {
                   [event.questionId]: {
                     choiceId: event.choiceId,
                     submittedAt: event.timestamp,
                     isCorrect: event.isCorrect,
+                    elapsedMs,
                   },
-                },
-              },
+                };
+                const totals = computeParticipantTotals(answers);
+                return {
+                  userId: event.userId,
+                  displayName: event.userId,
+                  connected: true,
+                  lastSeen: event.timestamp,
+                  answers,
+                  score: totals.score,
+                  totalElapsedMs: totals.totalElapsedMs,
+                };
+              })(),
           ];
 
         return {
@@ -229,7 +296,7 @@ const reducer = (state: SessionState, action: Action): SessionState => {
         questionRevealAt: event.questionRevealAt ?? null,
         questionRevealEndsAt: event.questionRevealEndsAt ?? null,
         autoProgress: event.autoProgress,
-        participants: event.participants,
+        participants: event.participants.map(normalizeParticipant),
         adminSnapshot: event,
       };
     case "sync_ack":

@@ -138,6 +138,7 @@ Cloudflare Functions (Workers) で提供する REST API の責務と入出力フ
 ## 4. 結果閲覧 API
 ### 4.1 `GET /api/sessions/:sessionId/results`
 - 概要: クイズ終了後に参加者のスコアや回答履歴を取得。
+- 備考: 参加者は `score` の降順、同点の場合は `totalElapsedMs` が小さい順でソートされる。
 - レスポンス例:
 ```json
 {
@@ -151,8 +152,15 @@ Cloudflare Functions (Workers) で提供する REST API の責務と入出力フ
       "userId": "u1",
       "displayName": "Alice",
       "score": 8,
+      "totalElapsedMs": 9250,
       "answers": [
-        { "questionId": "q1", "choiceId": "c1", "isCorrect": true, "submittedAt": "2024-12-05T12:31:00Z" }
+        {
+          "questionId": "q1",
+          "choiceId": "c1",
+          "isCorrect": true,
+          "submittedAt": "2024-12-05T12:31:00Z",
+          "elapsedMs": 3200
+        }
       ]
     }
   ]

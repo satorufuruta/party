@@ -270,10 +270,10 @@ export class AnswerRepository {
   async recordAnswer(record: AnswerRecord): Promise<void> {
     await this.db
       .prepare(
-        `INSERT INTO answers (id, session_id, question_id, user_id, choice_id, submitted_at)
-         VALUES (?, ?, ?, ?, ?, ?)
+        `INSERT INTO answers (id, session_id, question_id, user_id, choice_id, submitted_at, elapsed_ms, is_correct)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(session_id, question_id, user_id)
-         DO UPDATE SET choice_id = excluded.choice_id, submitted_at = excluded.submitted_at`
+         DO UPDATE SET choice_id = excluded.choice_id, submitted_at = excluded.submitted_at, elapsed_ms = excluded.elapsed_ms, is_correct = excluded.is_correct`
       )
       .bind(
         record.id,
@@ -281,7 +281,9 @@ export class AnswerRepository {
         record.question_id,
         record.user_id,
         record.choice_id,
-        record.submitted_at
+        record.submitted_at,
+        record.elapsed_ms,
+        record.is_correct
       )
       .run();
   }
@@ -289,7 +291,7 @@ export class AnswerRepository {
   async listBySession(sessionId: string): Promise<AnswerRecord[]> {
     const stmt = this.db
       .prepare(
-        `SELECT id, session_id, question_id, user_id, choice_id, submitted_at
+        `SELECT id, session_id, question_id, user_id, choice_id, submitted_at, elapsed_ms, is_correct
          FROM answers
          WHERE session_id = ?`
       )

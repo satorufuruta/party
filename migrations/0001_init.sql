@@ -77,6 +77,8 @@ CREATE TABLE IF NOT EXISTS answers (
   user_id TEXT NOT NULL,
   choice_id TEXT NOT NULL,
   submitted_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  elapsed_ms INTEGER NOT NULL DEFAULT 0,
+  is_correct INTEGER NOT NULL DEFAULT 0,
   FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
   FOREIGN KEY (question_id) REFERENCES questions(id) ON DELETE CASCADE,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,

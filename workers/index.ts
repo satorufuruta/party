@@ -178,6 +178,33 @@ const getSessionStub = (env: Env, sessionId: string): DurableObjectStub => {
   return env.QUIZ_ROOM_DO.get(id);
 };
 
+const normalizeAnswerSnapshot = (answer: ParticipantAnswerSnapshot): void => {
+  if (typeof answer.elapsedMs !== "number" || !Number.isFinite(answer.elapsedMs)) {
+    answer.elapsedMs = 0;
+  }
+  if (answer.elapsedMs < 0) {
+    answer.elapsedMs = 0;
+  }
+};
+
+const recalculateParticipantTotals = (participant: ParticipantStateSnapshot): void => {
+  participant.answers ??= {};
+  let score = 0;
+  let totalElapsedMs = 0;
+  for (const answer of Object.values(participant.answers)) {
+    if (!answer) {
+      continue;
+    }
+    normalizeAnswerSnapshot(answer);
+    if (answer.isCorrect) {
+      score += 1;
+    }
+    totalElapsedMs += answer.elapsedMs ?? 0;
+  }
+  participant.score = score;
+  participant.totalElapsedMs = totalElapsedMs;
+};
+
 async function handleSessionWebSocket(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   const segments = url.pathname.split("/").filter(Boolean);
@@ -201,6 +228,7 @@ interface ParticipantAnswerSnapshot {
   choiceId: string;
   submittedAt: number;
   isCorrect?: boolean;
+  elapsedMs?: number;
 }
 
 interface ParticipantStateSnapshot {
@@ -209,6 +237,8 @@ interface ParticipantStateSnapshot {
   connected: boolean;
   lastSeen: number;
   answers: Record<string, ParticipantAnswerSnapshot>;
+  score: number;
+  totalElapsedMs: number;
 }
 
 interface AnswerSummarySnapshot {
@@ -384,6 +414,12 @@ export class QuizRoomDurableObject {
         this.snapshot.autoProgress ??= true;
         for (const participant of Object.values(this.snapshot.participants)) {
           participant.answers ??= {};
+          for (const answer of Object.values(participant.answers)) {
+            if (answer) {
+              normalizeAnswerSnapshot(answer);
+            }
+          }
+          recalculateParticipantTotals(participant);
         }
         workerLog("Restored session snapshot", {
           sessionId: this.snapshot.sessionId,
@@ -503,6 +539,7 @@ export class QuizRoomDurableObject {
     for (const participant of Object.values(this.snapshot.participants)) {
       participant.answers = {};
       participant.lastSeen = resetTimestamp;
+      recalculateParticipantTotals(participant);
     }
 
     this.snapshot.sessionId = sessionId;
@@ -782,11 +819,14 @@ export class QuizRoomDurableObject {
         connected: true,
         lastSeen: now(),
         answers: {},
+        score: 0,
+        totalElapsedMs: 0,
       };
       participant.connected = true;
       participant.lastSeen = now();
       participant.displayName = message.displayName ?? participant.displayName;
       participant.answers ??= {};
+      recalculateParticipantTotals(participant);
       this.snapshot.participants[message.userId] = participant;
       await this.persistState();
       workerLog("Participant joined", {
@@ -899,6 +939,7 @@ export class QuizRoomDurableObject {
         const participant = this.snapshot.participants[context.userId];
         const answer = participant?.answers?.[currentQuestion.id];
         if (participant && answer) {
+          normalizeAnswerSnapshot(answer);
           this.send(context, {
             type: "answer_result",
             sessionId: this.snapshot.sessionId,
@@ -909,6 +950,7 @@ export class QuizRoomDurableObject {
             choiceId: answer.choiceId,
             questionId: currentQuestion.id,
             userId: participant.userId,
+            elapsedMs: answer.elapsedMs ?? 0,
           });
         }
       }
@@ -1041,6 +1083,8 @@ export class QuizRoomDurableObject {
     const correctChoiceIds = question.choices.filter((choice) => choice.isCorrect).map((choice) => choice.id);
     const isCorrect = correctChoiceIds.includes(message.choiceId);
     const submittedAt = now();
+    const questionStartedAt = this.snapshot.questionStartedAt ?? submittedAt;
+    const elapsedMs = Math.max(0, submittedAt - questionStartedAt);
 
     workerLog("Answer submitted", {
       sessionId: this.snapshot.sessionId,
@@ -1048,6 +1092,7 @@ export class QuizRoomDurableObject {
       questionId: question.id,
       choiceId: message.choiceId,
       isCorrect,
+      elapsedMs,
     });
 
     participant.answers ??= {};
@@ -1055,7 +1100,10 @@ export class QuizRoomDurableObject {
       choiceId: message.choiceId,
       submittedAt,
       isCorrect,
+      elapsedMs,
     };
+    normalizeAnswerSnapshot(participant.answers[question.id]);
+    recalculateParticipantTotals(participant);
     participant.lastSeen = submittedAt;
     this.snapshot.participants[context.userId] = participant;
 
@@ -1069,6 +1117,8 @@ export class QuizRoomDurableObject {
       user_id: context.userId,
       choice_id: message.choiceId,
       submitted_at: new Date(submittedAt).toISOString(),
+      elapsed_ms: elapsedMs,
+      is_correct: isCorrect ? 1 : 0,
     });
 
     this.sendToParticipant(context.userId, {
@@ -1078,6 +1128,7 @@ export class QuizRoomDurableObject {
       questionIndex: this.snapshot.questionIndex,
       questionId: question.id,
       choiceId: message.choiceId,
+      elapsedMs,
       userId: context.userId,
     });
   }
@@ -1521,6 +1572,7 @@ export class QuizRoomDurableObject {
       if (!answer) {
         continue;
       }
+      normalizeAnswerSnapshot(answer);
       const payload = {
         type: "answer_result",
         sessionId: this.snapshot.sessionId,
@@ -1531,6 +1583,7 @@ export class QuizRoomDurableObject {
         choiceId: answer.choiceId,
         questionId: question.id,
         userId: participant.userId,
+        elapsedMs: answer.elapsedMs ?? 0,
       };
       this.sendToParticipant(participant.userId, payload);
     }

@@ -35,8 +35,11 @@ interface ParticipantState {
       choiceId: string;
       submittedAt: number;
       isCorrect?: boolean;
+      elapsedMs?: number;
     }
   >;
+  score: number;
+  totalElapsedMs: number;
 }
 
 interface AnswerSummary {
@@ -139,9 +142,9 @@ stateDiagram-v2
 | `session_ready` | 現在のセッション情報を初期化時に送付 | `{ "status": "question", "questionIndex": 1, "questionDeadline": 1700000050000, "questionLockedAt": null, ... }` |
 | `question_start` | 新しい問題の開始 | `{ "questionIndex": 2, "question": { "id": "q45", "text": "...", "choices": [{ "id": "c1", "text": "A" }] }, "deadline": 1700000050000 }` |
 | `question_locked` | 回答受付終了と集計待機の開始 | `{ "questionIndex": 2, "questionId": "q45", "lockedAt": 1700000050000, "revealAt": 1700000055000 }` |
-| `answer_received` | 回答受付 ACK | `{ "questionIndex": 2, "questionId": "q45", "choiceId": "c2", "userId": "u123" }` |
+| `answer_received` | 回答受付 ACK | `{ "questionIndex": 2, "questionId": "q45", "choiceId": "c2", "userId": "u123", "elapsedMs": 12500 }` |
 | `question_reveal` | 集計結果を配信。参加者/管理者共通 | `{ "questionIndex": 2, "totals": { "c1": 10, "c2": 22 }, "correctChoiceIds": ["c2"], "revealEndsAt": 1700000075000 }` |
-| `answer_result` | 個別参加者向けの結果通知 | `{ "questionIndex": 2, "isCorrect": true, "correctChoiceId": "c2", "choiceId": "c2" }` |
+| `answer_result` | 個別参加者向けの結果通知 | `{ "questionIndex": 2, "isCorrect": true, "correctChoiceId": "c2", "choiceId": "c2", "elapsedMs": 12500 }` |
 | `quiz_finish` | クイズ終了 | `{ "finalScore": 8, "rank": 5 }` (参加者別) |
 | `error` | エラー通知 | `{ "code": "answer_closed", "message": "Answer window closed." }` |
 

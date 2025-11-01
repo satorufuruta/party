@@ -4,6 +4,7 @@ export interface ParticipantAnswer {
   choiceId: string;
   submittedAt: number;
   isCorrect?: boolean;
+  elapsedMs?: number;
 }
 
 export interface ParticipantState {
@@ -12,6 +13,8 @@ export interface ParticipantState {
   connected: boolean;
   lastSeen: number;
   answers: Record<string, ParticipantAnswer>;
+  score: number;
+  totalElapsedMs: number;
 }
 
 export interface QuestionChoice {
@@ -79,6 +82,7 @@ export type SocketEvent =
       choiceId: string;
       questionId: string;
       userId: string;
+      elapsedMs: number;
     }
   | {
       type: "answer_received";
@@ -88,6 +92,7 @@ export type SocketEvent =
       questionId: string;
       choiceId: string;
       userId: string;
+      elapsedMs: number;
     }
   | {
       type: "quiz_finish";

@@ -54,4 +54,6 @@ export interface AnswerRecord {
   user_id: string;
   choice_id: string;
   submitted_at: ISODateString;
+  elapsed_ms: number;
+  is_correct: 0 | 1;
 }
