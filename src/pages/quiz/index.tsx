@@ -419,7 +419,7 @@ export default function ParticipantPage() {
                   </div>
                 ) : (
                   <div className="mt-6 rounded-2xl bg-slate-50 px-6 py-8 text-center text-sm text-slate-500">
-                    {state.status === "lobby" ? "現在待機中です。開始までお待ちください。" : "次の問題を待機しています。"}
+                    {"クイズ開始までお待ちください！"}
                   </div>
                 )}
               </section>
