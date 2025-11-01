@@ -214,7 +214,7 @@ export default function ParticipantPage() {
     <div className="min-h-screen bg-slate-100 text-slate-900">
       <div className="mx-auto flex min-h-screen max-w-4xl flex-col px-4 pb-12 pt-8 sm:px-6 lg:px-8">
         <header className="space-y-4">
-          <div className="rounded-3xl bg-white px-6 py-6 shadow-xl ring-1 ring-slate-900/5">
+          <div className="rounded-3xl bg-white px-6 py-3 shadow-xl ring-1 ring-slate-900/5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h1 className="text-2xl font-bold tracking-tight text-slate-900">披露宴クイズ</h1>
             </div>
@@ -234,7 +234,7 @@ export default function ParticipantPage() {
               </div>
             )}
 
-            <div className="mt-4 rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
+            <div className="mt-2 rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
               {userLoading
                 ? "参加者情報を確認しています..."
                 : userError
@@ -248,7 +248,7 @@ export default function ParticipantPage() {
           </div>
         </header>
 
-        <main className="mt-6 flex-1">
+        <main className="mt-3 flex-1">
           {needsLogin ? (
             <section className="mx-auto max-w-md rounded-3xl bg-white px-6 py-6 shadow-xl ring-1 ring-slate-900/5">
               <h2 className="text-lg font-semibold text-slate-900">クイズに参加する</h2>
@@ -315,7 +315,7 @@ export default function ParticipantPage() {
 
               <section className="rounded-3xl bg-white px-6 py-4 shadow-xl ring-1 ring-slate-900/5">
                 {state.question ? (
-                  <div className="space-y-6">
+                  <div className="space-y-3">
                     <div className="rounded-2xl bg-slate-50 px-4 py-3">
                       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                         第 {state.questionIndex + 1} 問
@@ -324,7 +324,7 @@ export default function ParticipantPage() {
                     </div>
                     {revealFeedback && (
                       <div
-                        className={`rounded-2xl border px-4 py-4 text-sm sm:text-base ${
+                        className={`rounded-2xl border px-4 py-2 text-sm sm:text-base ${
                           revealFeedback.variant === "correct"
                             ? "border-emerald-200 bg-emerald-50 text-emerald-700"
                             : revealFeedback.variant === "incorrect"
@@ -371,7 +371,7 @@ export default function ParticipantPage() {
                             aria-pressed={isActive}
                             disabled={submissionLocked}
                             style={{ backgroundColor: palette.background }}
-                            className={`transform group relative flex min-h-[140px] flex-col items-center justify-center rounded-3xl px-6 py-6 text-center text-lg font-semibold leading-snug shadow-lg transition-transform duration-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-white/70 disabled:cursor-not-allowed ${
+                            className={`transform group relative flex aspect-[3/2] w-full flex-col items-center justify-center rounded-3xl px-6 py-6 text-center text-lg font-semibold leading-snug shadow-lg transition-transform duration-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-white/70 disabled:cursor-not-allowed ${
                               textClass
                             } ${
                               isActive
