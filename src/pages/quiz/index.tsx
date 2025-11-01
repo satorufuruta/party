@@ -128,10 +128,6 @@ export default function ParticipantPage() {
     switch (state.status) {
       case "question":
         return `残り ${state.remainingSeconds} 秒`;
-      case "answers_locked":
-        return `結果まで ${state.remainingSeconds} 秒`;
-      case "reveal":
-        return `次の問題まで ${state.remainingSeconds} 秒`;
       default:
         return null;
     }
@@ -148,6 +144,58 @@ export default function ParticipantPage() {
   const activeChoiceId = answeredChoiceId ?? pendingChoiceId;
   const showSubmitButton = state.status === "question" && !answeredChoiceId;
   const submitButtonDisabled = !pendingChoiceId || submittingAnswer || !currentQuestionId;
+
+  const revealFeedback = useMemo(() => {
+    if (state.status !== "reveal" || !state.question) {
+      return null;
+    }
+    const summary = state.summary;
+    if (!summary) {
+      return {
+        variant: "pending" as const,
+        title: "結果を集計しています",
+        description: "もう少しお待ちください。",
+      };
+    }
+    const correctChoices = new Set(summary.correctChoiceIds);
+    const correctLabels = state.question.choices
+      .map((choice, index) => (correctChoices.has(choice.id) ? String.fromCharCode(65 + index) : null))
+      .filter((label): label is string => !!label);
+
+    if (!answeredChoiceId) {
+      return {
+        variant: "neutral" as const,
+        title: "正解発表",
+        description: correctLabels.length
+          ? `正解は ${correctLabels.join(" / ")} です。今回は未回答でした。`
+          : "正解情報を取得できませんでした。",
+      };
+    }
+
+    const selectedIndex = state.question.choices.findIndex((choice) => choice.id === answeredChoiceId);
+    const selectedLabel = selectedIndex >= 0 ? String.fromCharCode(65 + selectedIndex) : null;
+    const isCorrect = correctChoices.has(answeredChoiceId);
+
+    if (isCorrect) {
+      return {
+        variant: "correct" as const,
+        title: "正解です！",
+        description: selectedLabel
+          ? `${selectedLabel} を選択しました。`
+          : "正しい選択肢を選びました。",
+        footer: correctLabels.length > 1 ? `正解: ${correctLabels.join(" / ")}` : undefined,
+      };
+    }
+
+    return {
+      variant: "incorrect" as const,
+      title: "残念、不正解でした！",
+      description: selectedLabel
+        ? `${selectedLabel} を選択しました。`
+        : "今回の回答は正解ではありませんでした。",
+      footer: correctLabels.length ? `正解: ${correctLabels.join(" / ")}` : undefined,
+    };
+  }, [state.status, state.summary, state.question, answeredChoiceId]);
 
   if (!SESSION_ID) {
     return (
@@ -168,49 +216,24 @@ export default function ParticipantPage() {
         <header className="space-y-4">
           <div className="rounded-3xl bg-white px-6 py-6 shadow-xl ring-1 ring-slate-900/5">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <h1 className="text-2xl font-bold tracking-tight text-slate-900">Party Quiz</h1>
-              <span className="text-sm font-medium text-slate-500">セッション {SESSION_ID}</span>
+              <h1 className="text-2xl font-bold tracking-tight text-slate-900">披露宴クイズ</h1>
             </div>
+            {countdownLabel && (
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-slate-600">
-              <div className="flex flex-wrap items-center gap-3">
-                <span className="flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
-                  <span
-                    className={`h-2.5 w-2.5 rounded-full ${
-                      user
-                        ? connected
-                          ? "bg-emerald-400"
-                          : "bg-amber-400"
-                        : needsLogin
-                          ? "bg-slate-400"
-                          : "bg-red-400"
-                    }`}
-                  />
-                  {user
-                    ? connected
-                      ? "接続中"
-                      : "接続待機中"
-                    : needsLogin
-                      ? "参加者確認待ち"
-                      : "参加者情報を確認中"}
-                </span>
-                <span>
-                  ステータス: <span className="font-semibold text-slate-700">{statusLabel}</span>
-                </span>
+              <span
+                className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                  state.status === "question"
+                    ? "bg-blue-50 text-blue-600"
+                    : state.status === "answers_locked"
+                      ? "bg-amber-50 text-amber-600"
+                      : "bg-emerald-50 text-emerald-600"
+                }`}
+              >
+                {countdownLabel}
+              </span>
               </div>
-              {countdownLabel && (
-                <span
-                  className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                    state.status === "question"
-                      ? "bg-blue-50 text-blue-600"
-                      : state.status === "answers_locked"
-                        ? "bg-amber-50 text-amber-600"
-                        : "bg-emerald-50 text-emerald-600"
-                  }`}
-                >
-                  {countdownLabel}
-                </span>
-              )}
-            </div>
+            )}
+
             <div className="mt-4 rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
               {userLoading
                 ? "参加者情報を確認しています..."
@@ -225,7 +248,7 @@ export default function ParticipantPage() {
           </div>
         </header>
 
-        <main className="mt-8 flex-1">
+        <main className="mt-6 flex-1">
           {needsLogin ? (
             <section className="mx-auto max-w-md rounded-3xl bg-white px-6 py-6 shadow-xl ring-1 ring-slate-900/5">
               <h2 className="text-lg font-semibold text-slate-900">クイズに参加する</h2>
@@ -290,22 +313,53 @@ export default function ParticipantPage() {
                 </p>
               )}
 
-              <section className="rounded-3xl bg-white px-6 py-6 shadow-xl ring-1 ring-slate-900/5">
+              <section className="rounded-3xl bg-white px-6 py-4 shadow-xl ring-1 ring-slate-900/5">
                 {state.question ? (
                   <div className="space-y-6">
-                    <div className="rounded-2xl bg-slate-50 px-4 py-4">
+                    <div className="rounded-2xl bg-slate-50 px-4 py-3">
                       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                         第 {state.questionIndex + 1} 問
                       </p>
-                      <h2 className="mt-3 text-xl font-semibold text-slate-900">{state.question.text}</h2>
+                      <h2 className="mt-2 text-xl font-semibold text-slate-900">{state.question.text}</h2>
                     </div>
-                    <div className="grid gap-4 sm:grid-cols-2">
+                    {revealFeedback && (
+                      <div
+                        className={`rounded-2xl border px-4 py-4 text-sm sm:text-base ${
+                          revealFeedback.variant === "correct"
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                            : revealFeedback.variant === "incorrect"
+                              ? "border-rose-200 bg-rose-50 text-rose-700"
+                              : revealFeedback.variant === "pending"
+                                ? "border-amber-200 bg-amber-50 text-amber-700"
+                                : "border-slate-200 bg-slate-50 text-slate-600"
+                        }`}
+                      >
+                        <p className="text-base font-semibold sm:text-lg">{revealFeedback.title}</p>
+                        {revealFeedback.description && (
+                          <p className="mt-1 text-sm sm:text-base">{revealFeedback.description}</p>
+                        )}
+                        {revealFeedback.footer && (
+                          <p
+                            className={`mt-2 text-xs font-medium sm:text-sm ${
+                              revealFeedback.variant === "correct"
+                                ? "text-emerald-600"
+                                : revealFeedback.variant === "incorrect"
+                                  ? "text-rose-600"
+                                  : "text-slate-500"
+                            }`}
+                          >
+                            {revealFeedback.footer}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    <div className="grid grid-cols-2 gap-3 sm:gap-4">
                       {state.question.choices.map((choice, index) => {
                         const palette = CHOICE_COLORS[index % CHOICE_COLORS.length];
                         const textClass = palette.text === "#FFFFFF" ? "text-white" : "text-slate-900";
                         const label = String.fromCharCode(65 + index);
                         const isActive = activeChoiceId === choice.id;
-                        const isFinalized = answeredChoiceId === choice.id;
+                        const inactiveDimmed = !!activeChoiceId && activeChoiceId !== choice.id;
                         return (
                           <button
                             key={choice.id}
@@ -315,26 +369,20 @@ export default function ParticipantPage() {
                               setPendingChoiceId(choice.id);
                             }}
                             aria-pressed={isActive}
-                            disabled={submissionLocked && !isFinalized}
+                            disabled={submissionLocked}
                             style={{ backgroundColor: palette.background }}
-                            className={`transform group relative flex min-h-[140px] flex-col justify-center rounded-3xl px-6 py-6 text-left text-lg font-semibold leading-snug shadow-lg transition-transform duration-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-white/70 disabled:cursor-not-allowed ${
+                            className={`transform group relative flex min-h-[140px] flex-col items-center justify-center rounded-3xl px-6 py-6 text-center text-lg font-semibold leading-snug shadow-lg transition-transform duration-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-white/70 disabled:cursor-not-allowed ${
                               textClass
                             } ${
                               isActive
-                                ? isFinalized
-                                  ? "ring-4 ring-white/90"
-                                  : "ring-4 ring-white/75 ring-offset-2 ring-offset-white"
-                                : "ring-4 ring-transparent"
-                            } ${
-                              submissionLocked && !isFinalized ? "opacity-90" : "hover:-translate-y-1 hover:shadow-2xl"
-                            }`}
+                                ? "scale-[1.03] shadow-[0_28px_60px_-16px rgba(15,23,42,0.65)]"
+                                : "shadow-lg hover:-translate-y-1 hover:shadow-2xl"
+                            } ${inactiveDimmed ? "opacity-40" : "opacity-100"}`}
                           >
-                            <span className="absolute left-4 top-4 flex h-8 w-8 items-center justify-center rounded-full bg-white text-sm font-semibold text-slate-700 shadow">
+                            <span className="text-3xl font-extrabold tracking-wide" style={{ color: palette.text }}>
                               {label}
                             </span>
-                            <span className="break-words pr-2 text-base font-semibold leading-relaxed sm:text-lg sm:leading-relaxed">
-                              {choice.text}
-                            </span>
+                            <span className="sr-only">{choice.text}</span>
                           </button>
                         );
                       })}
@@ -365,7 +413,7 @@ export default function ParticipantPage() {
                         回答受付は終了しました。結果が表示されるまでお待ちください。
                       </p>
                     )}
-                    {currentAnswer && state.status === "answers_locked" && (
+                    {state.status === "question" && answeredChoiceId && (
                       <p className="text-sm font-medium text-slate-700">回答を受け付けました。</p>
                     )}
                   </div>
