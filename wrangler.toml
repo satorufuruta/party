@@ -22,7 +22,7 @@ new_classes = ["QuizRoomDurableObject"]
 [[d1_databases]]
 binding = "PARTY_DB"
 database_name = "party-db"
-database_id = "ebd8002c-90fb-44e5-8608-6398c5229a10"
+database_id = "10701be3-24a8-43ef-b715-b78a20f9dcb2"
 
 [env.dev]
 vars = { AUTO_PROGRESS_DEFAULT = "true", DEFAULT_SESSION_ID = "quiz1102" }
@@ -44,4 +44,4 @@ build_output_dir = ".vercel/output/static"
 [[pages.d1_databases]]
 binding = "PARTY_DB"
 database_name = "party-db"
-database_id = "ebd8002c-90fb-44e5-8608-6398c5229a10"
+database_id = "10701be3-24a8-43ef-b715-b78a20f9dcb2"
